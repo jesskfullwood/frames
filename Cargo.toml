@@ -1,0 +1,7 @@
+[package]
+name = "frames"
+version = "0.1.0"
+authors = ["jesskfulwood <jesskfulwood@gmail.com>"]
+
+[dependencies]
+failure = "0.1.1"
