@@ -14,6 +14,7 @@ type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
 
 // TODO "TypedFrame" with a custom-derive?
+// TODO Pretty-printing of DataFrame
 
 #[derive(Clone, Debug)]
 pub struct DataFrame {
@@ -76,10 +77,11 @@ impl DataFrame {
 
         let mut newdf = DataFrame::new();
 
+        // TODO actually we should add these in ORDER
         // make new collections from 'self' cols
         for (colname, col) in &self.cols {
             let newcol = col.copy_locs(&leftix);
-            newdf.addcol(colname.clone(), newcol);
+            newdf.addcol(colname.clone(), newcol).unwrap();
         }
         // make new collections from 'other' cols
         for (colname, col) in &other.cols {
@@ -88,7 +90,7 @@ impl DataFrame {
                 continue;
             }
             let newcol = col.copy_locs(&rightix);
-            newdf.addcol(colname.clone(), newcol);
+            newdf.addcol(colname.clone(), newcol).unwrap();
         }
         Ok(newdf)
     }
@@ -248,7 +250,9 @@ impl<T: Hash + Clone + Eq> Collection<T> {
     }
 
     fn inner_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<usize>) {
+        // TODO if "other" is already indexed, we can skip this step
         self.build_index();
+
         let borrow = self.index.borrow();
         let colix = borrow.as_ref().unwrap();
         let mut pair: Vec<(usize, usize)> = Vec::new();
@@ -273,29 +277,21 @@ impl<T: Hash + Clone + Eq> Collection<T> {
     }
 }
 
-impl From<Array<i32>> for Column {
-    fn from(arr: Array<i32>) -> Column {
-        Column {
-            inner: Arc::new(ColumnInner::I32(Collection::new(arr))),
+macro_rules! impl_column_from {
+    ($fromenum:ident, $fromty:ty) => {
+        impl From<Array<$fromty>> for Column {
+            fn from(arr: Array<$fromty>) -> Column {
+                Column {
+                    inner: Arc::new(ColumnInner::$fromenum(Collection::new(arr))),
+                }
+            }
         }
     }
 }
 
-impl From<Array<String>> for Column {
-    fn from(arr: Array<String>) -> Column {
-        Column {
-            inner: Arc::new(ColumnInner::String(Collection::new(arr))),
-        }
-    }
-}
-
-impl From<Array<bool>> for Column {
-    fn from(arr: Array<bool>) -> Column {
-        Column {
-            inner: Arc::new(ColumnInner::Bool(Collection::new(arr))),
-        }
-    }
-}
+impl_column_from!(I32, i32);
+impl_column_from!(String, String);
+impl_column_from!(Bool, bool);
 
 #[test]
 fn test_basic_features() {
@@ -328,7 +324,12 @@ fn test_join() {
     let mut df2 = DataFrame::new();
     df2.addcol("c1", vec![2, 4, 3, 3, 2, 5]).unwrap();
     let dfjoin = df.inner_join(df2, "c1").unwrap();
+
     let c1 = dfjoin.getcol("c1").unwrap();
     let e1 = Column::from(vec![2, 2, 3, 3, 4]);
     assert_eq!(c1, &e1);
+
+    let c2 = dfjoin.getcol("c2").unwrap();
+    let e2 = Column::from(vec![false, false, true, true, false]);
+    assert_eq!(c2, &e2);
 }
