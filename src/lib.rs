@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate failure;
+extern crate num;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -7,6 +8,9 @@ use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Index;
 use std::sync::Arc;
+
+use num::traits::AsPrimitive;
+use num::Num;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
@@ -277,6 +281,35 @@ impl<T: Hash + Clone + Eq> Collection<T> {
     }
 }
 
+impl<T: Num + Copy> Collection<T> {
+    fn sum(&self) -> T {
+        self.data.iter().fold(num::zero(), |acc, &v| acc + v)
+    }
+}
+
+impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
+    fn mean(&self) -> f64 {
+        let s: f64 = self.sum().as_();
+        s / self.len() as f64
+    }
+
+    fn variance(&self) -> f64 {
+        let mut sigmafxsqr: f64 = 0.;
+        let mut sigmafx: f64 = 0.;
+        self.data.iter().for_each(|n| {
+            let n: f64 = n.as_();
+            sigmafxsqr += n * n;
+            sigmafx += n;
+        });
+        let mean = sigmafx / self.len() as f64;
+        sigmafxsqr / self.len() as f64 - mean * mean
+    }
+
+    fn stdev(&self) -> f64 {
+        self.variance().sqrt()
+    }
+}
+
 macro_rules! impl_column_from {
     ($fromenum:ident, $fromty:ty) => {
         impl From<Array<$fromty>> for Column {
@@ -286,7 +319,7 @@ macro_rules! impl_column_from {
                 }
             }
         }
-    }
+    };
 }
 
 impl_column_from!(I32, i32);
