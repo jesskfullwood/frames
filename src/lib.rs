@@ -1,17 +1,19 @@
 #[macro_use]
 extern crate failure;
 
-use std::collections::HashMap ;
-use std::sync::Arc;
-use std::hash::Hash;
 use std::cell::RefCell;
-use std::ops::{Index};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
+use std::ops::Index;
+use std::sync::Arc;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
+
+// TODO "TypedFrame" with a custom-derive?
 
 #[derive(Clone, Debug)]
 pub struct DataFrame {
@@ -25,7 +27,7 @@ impl DataFrame {
         DataFrame {
             cols: HashMap::new(),
             order: Vec::new(),
-            len: 0
+            len: 0,
         }
     }
 
@@ -46,7 +48,8 @@ impl DataFrame {
         col.build_index();
     }
 
-    pub fn add_col(&mut self, name: String, col: impl Into<Column>) -> Result<()> {
+    pub fn addcol(&mut self, name: impl Into<String>, col: impl Into<Column>) -> Result<()> {
+        let name = name.into();
         let col = col.into();
         if self.num_cols() == 0 {
             self.len = col.len();
@@ -59,25 +62,36 @@ impl DataFrame {
         Ok(())
     }
 
-    fn get_col(&self, key: &str) -> Result<&Column> {
-        self.cols.get(key).ok_or_else(||format_err!("Column {} not found", key))
+    fn getcol(&self, key: &str) -> Result<&Column> {
+        self.cols
+            .get(key)
+            .ok_or_else(|| format_err!("Column {} not found", key))
     }
 
     pub fn inner_join(&self, other: DataFrame, on: &str) -> Result<DataFrame> {
-        let col = self.get_col(on)?;
-        let othercol = other.get_col(on)?;
+        let col = self.getcol(on)?;
+        let othercol = other.getcol(on)?;
         // get requisite left and right join indices
         let (leftix, rightix) = col.inner_join_locs(othercol);
-        let newdflen = leftix.len();
+
         let mut newdf = DataFrame::new();
 
-        for (colname, colvals) in &self.cols {
-            // make new collections
-            // let mut newcol = Vec::with_capacity(newdflen);
+        // make new collections from 'self' cols
+        for (colname, col) in &self.cols {
+            let newcol = col.copy_locs(&leftix);
+            newdf.addcol(colname.clone(), newcol);
         }
-        unimplemented!();
+        // make new collections from 'other' cols
+        for (colname, col) in &other.cols {
+            if colname == on {
+                // already done
+                continue;
+            }
+            let newcol = col.copy_locs(&rightix);
+            newdf.addcol(colname.clone(), newcol);
+        }
+        Ok(newdf)
     }
-
 }
 
 impl<'a> Index<&'a str> for DataFrame {
@@ -88,9 +102,9 @@ impl<'a> Index<&'a str> for DataFrame {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Column {
-    inner: Arc<ColumnInner>
+    inner: Arc<ColumnInner>,
 }
 
 impl Column {
@@ -110,40 +124,50 @@ impl Column {
         self.inner.inner_join_locs(&*other.inner)
     }
 
+    fn copy_locs(&self, locs: &[usize]) -> Self {
+        Self {
+            inner: Arc::new(self.inner.copy_locs(locs)),
+        }
+    }
+
     pub fn sum(&self) -> f64 {
         self.inner.sum()
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum ColumnInner {
     Bool(Collection<bool>),
     I32(Collection<i32>),
-    String(Collection<String>)
+    String(Collection<String>),
 }
 
+macro_rules! column_apply {
+    ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
+        fn $fname(self: &Self, $($arg:$argty),*) -> $rtn {
+            use ColumnInner::*;
+            match self {
+                  Bool(c) => $func(&c $(,$arg)*),
+                   I32(c) => $func(&c $(,$arg)*),
+                String(c) => $func(&c $(,$arg)*),
+            }
+        }
+    }
+}
+
+// TODO another macro for matching columns?
+
 impl ColumnInner {
-    fn len(&self) -> usize {
-        match &self {
-            ColumnInner::Bool(c) => c.len(),
-            ColumnInner::I32(c) => c.len(),
-            ColumnInner::String(c) => c.len(),
-        }
-    }
+    column_apply!(len, usize => Collection::len);
+    column_apply!(has_index, bool => Collection::has_index);
+    column_apply!(build_index, () => Collection::build_index);
 
-    fn has_index(&self) -> bool {
+    fn copy_locs(&self, locs: &[usize]) -> Self {
+        use ColumnInner::*;
         match &self {
-            ColumnInner::Bool(c) => c.has_index(),
-            ColumnInner::I32(c) => c.has_index(),
-            ColumnInner::String(c) => c.has_index(),
-        }
-    }
-
-    fn build_index(&self) {
-        match &self {
-            ColumnInner::Bool(c) => c.build_index(),
-            ColumnInner::I32(c) => c.build_index(),
-            ColumnInner::String(c) => c.build_index(),
+            Bool(c) => Bool(c.copy_locs(locs)),
+            I32(c) => I32(c.copy_locs(locs)),
+            String(c) => String(c.copy_locs(locs)),
         }
     }
 
@@ -152,7 +176,7 @@ impl ColumnInner {
             (ColumnInner::Bool(_), ColumnInner::Bool(_)) => true,
             (ColumnInner::I32(_), ColumnInner::I32(_)) => true,
             (ColumnInner::String(_), ColumnInner::String(_)) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -161,7 +185,7 @@ impl ColumnInner {
             (ColumnInner::Bool(c1), ColumnInner::Bool(c2)) => c1.inner_join_locs(c2),
             (ColumnInner::I32(c1), ColumnInner::I32(c2)) => c1.inner_join_locs(c2),
             (ColumnInner::String(c1), ColumnInner::String(c2)) => c1.inner_join_locs(c2),
-            _ => panic!("Mismatching column types")
+            _ => panic!("Mismatching column types"),
         }
     }
 
@@ -174,10 +198,16 @@ impl ColumnInner {
 #[derive(Clone)]
 struct Collection<T> {
     data: Array<T>,
-    index: RefCell<Option<IndexMap<T>>>
+    index: RefCell<Option<IndexMap<T>>>,
 }
 
-impl<T> Debug for Collection<T>{
+impl<T: PartialEq> PartialEq for Collection<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl<T> Debug for Collection<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
         write!(f, "Collection")
     }
@@ -187,7 +217,7 @@ impl<T> Collection<T> {
     fn new(data: Array<T>) -> Collection<T> {
         Collection {
             data,
-            index: RefCell::new(None)
+            index: RefCell::new(None),
         }
     }
 
@@ -207,7 +237,7 @@ impl<T> Collection<T> {
 impl<T: Hash + Clone + Eq> Collection<T> {
     fn build_index(&self) {
         if self.has_index() {
-            return
+            return;
         }
         let mut index = IndexMap::new();
         for (ix, d) in self.data.iter().enumerate() {
@@ -224,9 +254,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
         let mut pair: Vec<(usize, usize)> = Vec::new();
         for (rix, val) in other.iter().enumerate() {
             if let Some(lixs) = colix.get(val) {
-                lixs.iter().for_each(|&lix| {
-                    pair.push((lix, rix))
-                })
+                lixs.iter().for_each(|&lix| pair.push((lix, rix)))
             }
         }
         pair.sort_unstable();
@@ -248,7 +276,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
 impl From<Array<i32>> for Column {
     fn from(arr: Array<i32>) -> Column {
         Column {
-            inner: Arc::new(ColumnInner::I32(Collection::new(arr)))
+            inner: Arc::new(ColumnInner::I32(Collection::new(arr))),
         }
     }
 }
@@ -256,7 +284,7 @@ impl From<Array<i32>> for Column {
 impl From<Array<String>> for Column {
     fn from(arr: Array<String>) -> Column {
         Column {
-            inner: Arc::new(ColumnInner::String(Collection::new(arr)))
+            inner: Arc::new(ColumnInner::String(Collection::new(arr))),
         }
     }
 }
@@ -264,27 +292,43 @@ impl From<Array<String>> for Column {
 impl From<Array<bool>> for Column {
     fn from(arr: Array<bool>) -> Column {
         Column {
-            inner: Arc::new(ColumnInner::Bool(Collection::new(arr)))
+            inner: Arc::new(ColumnInner::Bool(Collection::new(arr))),
         }
     }
 }
 
 #[test]
-fn test_new() {
+fn test_basic_features() {
     let mut df = DataFrame::new();
-    let col = vec![1,2,3,4,5];
-    df.add_col("mycol".into(), col).unwrap();
+    let col = vec![1, 2, 3, 4, 5];
+    df.addcol("c1", col).unwrap();
 
-    let col2 = vec![2,3,4,5,6];
-    df.add_col("mycol2".into(), col2).unwrap();
+    let col2 = vec![2, 3, 4, 5, 6];
+    df.addcol("c2", col2).unwrap();
 
-    // wrong length
-    let col3 = vec![1,2,3,4,5,6];
-    df.add_col("mycol3".into(), col3).unwrap_err();
-    df.get_col("mycol3").unwrap_err();
+    // test wrong length
+    let col3 = vec![1, 2, 3, 4, 5, 6];
+    df.addcol("c3", col3).unwrap_err();
+    df.getcol("c3").unwrap_err();
 
-    let c = df["mycol"].clone();
+    assert_eq!(df.len(), 5);
+    assert_eq!(df.num_cols(), 2);
 
-    println!("{:?}", df);
+    // index
+    let c1 = &df["c1"];
+    assert_eq!(c1.len(), 5);
+}
 
+#[test]
+fn test_join() {
+    let mut df = DataFrame::new();
+    df.addcol("c1", vec![1, 2, 3, 4]).unwrap();
+    df.addcol("c2", vec![true, false, true, false]).unwrap();
+
+    let mut df2 = DataFrame::new();
+    df2.addcol("c1", vec![2, 4, 3, 3, 2, 5]).unwrap();
+    let dfjoin = df.inner_join(df2, "c1").unwrap();
+    let c1 = dfjoin.getcol("c1").unwrap();
+    let e1 = Column::from(vec![2, 2, 3, 3, 4]);
+    assert_eq!(c1, &e1);
 }
