@@ -4,7 +4,6 @@ extern crate num;
 extern crate ordered_float;
 
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
@@ -19,9 +18,8 @@ type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
-type Mask = Collection<bool>;
 
-// TODO "TypedFrame" with a custom-derive?
+// TODO "TypedFrame" with a custom-derive? Using an HList?
 // TODO Pretty-printing of DataFrame
 
 #[derive(Clone, Debug)]
@@ -57,7 +55,7 @@ impl DataFrame {
         col.build_index();
     }
 
-    pub fn addcol(&mut self, name: impl Into<String>, col: impl Into<Column>) -> Result<()> {
+    pub fn setcol(&mut self, name: impl Into<String>, col: impl Into<Column>) -> Result<()> {
         let name = name.into();
         let col = col.into();
         if self.num_cols() == 0 {
@@ -71,7 +69,7 @@ impl DataFrame {
         Ok(())
     }
 
-    fn getcol(&self, key: &str) -> Result<&Column> {
+    pub fn getcol(&self, key: &str) -> Result<&Column> {
         self.cols
             .get(key)
             .ok_or_else(|| format_err!("Column {} not found", key))
@@ -89,7 +87,7 @@ impl DataFrame {
         // make new collections from 'self' cols
         for (colname, col) in &self.cols {
             let newcol = col.copy_locs(&leftix);
-            newdf.addcol(colname.clone(), newcol).unwrap();
+            newdf.setcol(colname.clone(), newcol).unwrap();
         }
         // make new collections from 'other' cols
         for (colname, col) in &other.cols {
@@ -98,7 +96,7 @@ impl DataFrame {
                 continue;
             }
             let newcol = col.copy_locs(&rightix);
-            newdf.addcol(colname.clone(), newcol).unwrap();
+            newdf.setcol(colname.clone(), newcol).unwrap();
         }
         Ok(newdf)
     }
@@ -151,7 +149,7 @@ impl Column {
         self.inner.sum()
     }
 
-    fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
+    pub fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
     where
         ColumnInner: DynamicMap<I, bool>,
     {
@@ -162,7 +160,7 @@ impl Column {
         self.inner.mask(test)
     }
 
-    fn apply_mask(&self, mask: &Mask) -> Column {
+    pub fn apply_mask(&self, mask: &Mask) -> Column {
         if mask.len() != self.len() {
             panic!(
                 "Mask length doesn't match ({}, expected {})",
@@ -203,8 +201,9 @@ impl From<Array<f64>> for Column {
     }
 }
 
+#[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
-enum ColumnInner {
+pub enum ColumnInner {
     Bool(Collection<bool>),
     Int(Collection<i32>),
     String(Collection<String>),
@@ -266,11 +265,16 @@ impl ColumnInner {
         }
     }
 
+    fn sum(&self) -> f64 {
+        // How should this be done? Always f64? Precision a problem?
+        unimplemented!()
+    }
+
     fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
     where
         ColumnInner: DynamicMap<I, bool>,
     {
-        self.map(test)
+        Mask(self.map(test))
     }
 
     fn apply_mask(&self, mask: &Mask) -> Self {
@@ -285,8 +289,31 @@ impl ColumnInner {
     }
 }
 
+#[doc(hidden)]
+pub trait DynamicMap<T, R> {
+    fn map(&self, f: impl Fn(&T) -> R) -> Collection<R>;
+}
+
+macro_rules! dynamic_apply_impl {
+    ($raw:ty, $enum:ident) => {
+        impl<R> DynamicMap<$raw, R> for ColumnInner {
+            fn map(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
+                use ColumnInner::*;
+                match self {
+                    $enum(c) => c.map(f),
+                    _ => panic!("Can't apply function to TODO column"),
+                }
+            }
+        }
+    };
+}
+
+dynamic_apply_impl!(i32, Int);
+dynamic_apply_impl!(bool, Bool);
+dynamic_apply_impl!(String, String);
+
 #[derive(Clone)]
-struct Collection<T> {
+pub struct Collection<T> {
     data: Array<T>,
     index: RefCell<Option<IndexMap<T>>>,
 }
@@ -384,18 +411,18 @@ impl<T: Hash + Clone + Eq> Collection<T> {
 }
 
 impl<T: Num + Copy> Collection<T> {
-    fn sum(&self) -> T {
+    pub fn sum(&self) -> T {
         self.data.iter().fold(num::zero(), |acc, &v| acc + v)
     }
 }
 
 impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
-    fn mean(&self) -> f64 {
+    pub fn mean(&self) -> f64 {
         let s: f64 = self.sum().as_();
         s / self.len() as f64
     }
 
-    fn variance(&self) -> f64 {
+    pub fn variance(&self) -> f64 {
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
         self.data.iter().for_each(|n| {
@@ -407,32 +434,23 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
         sigmafxsqr / self.len() as f64 - mean * mean
     }
 
-    fn stdev(&self) -> f64 {
+    pub fn stdev(&self) -> f64 {
         self.variance().sqrt()
     }
 }
 
-trait DynamicMap<T, R> {
-    fn map(&self, f: impl Fn(&T) -> R) -> Collection<R>;
-}
+pub struct Mask(Collection<bool>);
 
-macro_rules! dynamic_apply_impl {
-    ($raw:ty, $enum:ident) => {
-        impl<R> DynamicMap<$raw, R> for ColumnInner {
-            fn map(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
-                use ColumnInner::*;
-                match self {
-                    $enum(c) => c.map(f),
-                    _ => panic!("Can't apply function to TODO column"),
-                }
-            }
-        }
-    };
-}
+// TODO mask::from(vec<bool>)
+impl Mask {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 
-dynamic_apply_impl!(i32, Int);
-dynamic_apply_impl!(bool, Bool);
-dynamic_apply_impl!(String, String);
+    pub fn iter(&self) -> impl Iterator<Item=&bool> {
+        self.0.iter()
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -441,16 +459,16 @@ mod test {
     #[test]
     fn test_basic_features() {
         let mut df = DataFrame::new();
-        df.addcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
-        df.addcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
-        df.addcol("c3", vec![true, true, false, true, false])
+        df.setcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
+        df.setcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
+        df.setcol("c3", vec![true, true, false, true, false])
             .unwrap();
         let words: Vec<_> = "a b c d e".split(' ').map(String::from).collect();
-        df.addcol("c4", words).unwrap();
+        df.setcol("c4", words).unwrap();
 
         // test wrong length
         let too_long = vec![1, 2, 3, 4, 5, 6];
-        df.addcol("cX", too_long).unwrap_err();
+        df.setcol("cX", too_long).unwrap_err();
         df.getcol("cX").unwrap_err();
 
         assert_eq!(df.len(), 5);
@@ -464,11 +482,11 @@ mod test {
     #[test]
     fn test_join() {
         let mut df = DataFrame::new();
-        df.addcol("c1", vec![1, 2, 3, 4]).unwrap();
-        df.addcol("c2", vec![true, false, true, false]).unwrap();
+        df.setcol("c1", vec![1, 2, 3, 4]).unwrap();
+        df.setcol("c2", vec![true, false, true, false]).unwrap();
 
         let mut df2 = DataFrame::new();
-        df2.addcol("c1", vec![2, 4, 3, 3, 2, 5]).unwrap();
+        df2.setcol("c1", vec![2, 4, 3, 3, 2, 5]).unwrap();
         let dfjoin = df.inner_join(&df2, "c1").unwrap();
 
         let c1 = dfjoin.getcol("c1").unwrap();
@@ -480,8 +498,8 @@ mod test {
         assert_eq!(c2, &e2);
 
         // Join on floats (is this wise?)
-        df.addcol("c3", vec![4., 3., 2., 1.]).unwrap();
-        df2.addcol("c3", vec![1., 0., 0., 0., 0., 0.]).unwrap();
+        df.setcol("c3", vec![4., 3., 2., 1.]).unwrap();
+        df2.setcol("c3", vec![1., 0., 0., 0., 0., 0.]).unwrap();
         let dfjoin2 = df.inner_join(&df2, "c3").unwrap();
         assert_eq!(dfjoin2.len(), 1);
     }
@@ -489,7 +507,7 @@ mod test {
     #[test]
     fn test_mask() {
         let mut df = DataFrame::new();
-        df.addcol("c1", vec![1, 2, 3, 4]).unwrap();
+        df.setcol("c1", vec![1, 2, 3, 4]).unwrap();
         let mask = df["c1"].mask(|&v: &i32| v > 2);
         let cfilt = df["c1"].apply_mask(&mask);
         assert_eq!(cfilt, Column::from(vec![3, 4]))
