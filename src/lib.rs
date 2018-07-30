@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate failure;
 extern crate num;
+extern crate ordered_float;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ use std::sync::Arc;
 
 use num::traits::AsPrimitive;
 use num::Num;
+use ordered_float::OrderedFloat;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
@@ -73,7 +75,7 @@ impl DataFrame {
             .ok_or_else(|| format_err!("Column {} not found", key))
     }
 
-    pub fn inner_join(&self, other: DataFrame, on: &str) -> Result<DataFrame> {
+    pub fn inner_join(&self, other: &DataFrame, on: &str) -> Result<DataFrame> {
         let col = self.getcol(on)?;
         let othercol = other.getcol(on)?;
         // get requisite left and right join indices
@@ -146,8 +148,10 @@ enum ColumnInner {
     Bool(Collection<bool>),
     I32(Collection<i32>),
     String(Collection<String>),
+    Float(Collection<OrderedFloat<f64>>),
 }
 
+// TODO can we make the function bit just an expression? (with args provided to expr if necessary?)
 macro_rules! column_apply {
     ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
         fn $fname(self: &Self, $($arg:$argty),*) -> $rtn {
@@ -156,42 +160,49 @@ macro_rules! column_apply {
                   Bool(c) => $func(&c $(,$arg)*),
                    I32(c) => $func(&c $(,$arg)*),
                 String(c) => $func(&c $(,$arg)*),
+                 Float(c) => $func(&c $(,$arg)*),
             }
         }
     }
 }
 
-// TODO another macro for matching columns?
+macro_rules! column_apply_pair {
+    ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
+        fn $fname(self: &Self, other: &Self, $($arg:$argty),*) -> $rtn {
+            use ColumnInner::*;
+            match (self, other) {
+                (Bool(c1), Bool(c2))     => $func(&c1, &c2 $(,$arg)*),
+                (I32(c1), I32(c2))       => $func(&c1, &c2 $(,$arg)*),
+                (String(c1), String(c2)) => $func(&c1, &c2 $(,$arg)*),
+                (Float(c1), Float(c2))   => $func(&c1, &c2 $(,$arg)*),
+                _ => panic!("Mismatching column types"),
+            }
+        }
+    }
+}
 
 impl ColumnInner {
     column_apply!(len, usize => Collection::len);
     column_apply!(has_index, bool => Collection::has_index);
     column_apply!(build_index, () => Collection::build_index);
+    column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
 
     fn copy_locs(&self, locs: &[usize]) -> Self {
         use ColumnInner::*;
-        match &self {
+        match self {
             Bool(c) => Bool(c.copy_locs(locs)),
             I32(c) => I32(c.copy_locs(locs)),
             String(c) => String(c.copy_locs(locs)),
+            Float(c) => Float(c.copy_locs(locs)),
         }
     }
 
-    fn matching_type(&self, other: &ColumnInner) -> bool {
-        match (&self, other) {
+    fn matching_types(&self, other: &ColumnInner) -> bool {
+        match (self, other) {
             (ColumnInner::Bool(_), ColumnInner::Bool(_)) => true,
             (ColumnInner::I32(_), ColumnInner::I32(_)) => true,
             (ColumnInner::String(_), ColumnInner::String(_)) => true,
             _ => false,
-        }
-    }
-
-    fn inner_join_locs(&self, other: &ColumnInner) -> (Vec<usize>, Vec<usize>) {
-        match (&self, other) {
-            (ColumnInner::Bool(c1), ColumnInner::Bool(c2)) => c1.inner_join_locs(c2),
-            (ColumnInner::I32(c1), ColumnInner::I32(c2)) => c1.inner_join_locs(c2),
-            (ColumnInner::String(c1), ColumnInner::String(c2)) => c1.inner_join_locs(c2),
-            _ => panic!("Mismatching column types"),
         }
     }
 
@@ -240,6 +251,14 @@ impl<T> Collection<T> {
     }
 }
 
+impl<T: Clone> Collection<T> {
+    /// Create new Collection taking values from provided slice of indices
+    fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
+        let data = locs.iter().map(|&ix| self.data[ix].clone()).collect();
+        Collection::new(data)
+    }
+}
+
 impl<T: Hash + Clone + Eq> Collection<T> {
     fn build_index(&self) {
         if self.has_index() {
@@ -273,11 +292,6 @@ impl<T: Hash + Clone + Eq> Collection<T> {
             right.push(r);
         });
         (left, right)
-    }
-
-    fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
-        let data = locs.iter().map(|&ix| self.data[ix].clone()).collect();
-        Collection::new(data)
     }
 }
 
@@ -325,23 +339,35 @@ macro_rules! impl_column_from {
 impl_column_from!(I32, i32);
 impl_column_from!(String, String);
 impl_column_from!(Bool, bool);
+// TODO this impl is no good, we want to pass simple f64s
+impl_column_from!(Float, OrderedFloat<f64>);
+
+impl From<Array<f64>> for Column {
+    fn from(arr: Array<f64>) -> Column {
+        let arr = unsafe { std::mem::transmute::<_, Array<OrderedFloat<f64>>>(arr) };
+        Column {
+            inner: Arc::new(ColumnInner::Float(Collection::new(arr))),
+        }
+    }
+}
 
 #[test]
 fn test_basic_features() {
     let mut df = DataFrame::new();
-    let col = vec![1, 2, 3, 4, 5];
-    df.addcol("c1", col).unwrap();
-
-    let col2 = vec![2, 3, 4, 5, 6];
-    df.addcol("c2", col2).unwrap();
+    df.addcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
+    df.addcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
+    df.addcol("c3", vec![true, true, false, true, false])
+        .unwrap();
+    let words: Vec<_> = "a b c d e".split(' ').map(String::from).collect();
+    df.addcol("c4", words).unwrap();
 
     // test wrong length
-    let col3 = vec![1, 2, 3, 4, 5, 6];
-    df.addcol("c3", col3).unwrap_err();
-    df.getcol("c3").unwrap_err();
+    let too_long = vec![1, 2, 3, 4, 5, 6];
+    df.addcol("cX", too_long).unwrap_err();
+    df.getcol("cX").unwrap_err();
 
     assert_eq!(df.len(), 5);
-    assert_eq!(df.num_cols(), 2);
+    assert_eq!(df.num_cols(), 4);
 
     // index
     let c1 = &df["c1"];
@@ -356,7 +382,7 @@ fn test_join() {
 
     let mut df2 = DataFrame::new();
     df2.addcol("c1", vec![2, 4, 3, 3, 2, 5]).unwrap();
-    let dfjoin = df.inner_join(df2, "c1").unwrap();
+    let dfjoin = df.inner_join(&df2, "c1").unwrap();
 
     let c1 = dfjoin.getcol("c1").unwrap();
     let e1 = Column::from(vec![2, 2, 3, 3, 4]);
@@ -365,4 +391,9 @@ fn test_join() {
     let c2 = dfjoin.getcol("c2").unwrap();
     let e2 = Column::from(vec![false, false, true, true, false]);
     assert_eq!(c2, &e2);
+
+    df.addcol("c3", vec![4., 3., 2., 1.]).unwrap();
+    df2.addcol("c3", vec![1., 0., 0., 0., 0., 0.]).unwrap();
+    let dfjoin2 = df.inner_join(&df2, "c3").unwrap();
+    assert_eq!(dfjoin2.len(), 1);
 }

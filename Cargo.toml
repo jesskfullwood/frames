@@ -6,3 +6,4 @@ authors = ["jesskfulwood <jesskfulwood@gmail.com>"]
 [dependencies]
 failure = "0.1.1"
 num = "0.2.0"
+new-ordered-float = "1.0.1"
