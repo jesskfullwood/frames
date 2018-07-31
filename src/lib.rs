@@ -29,6 +29,14 @@ pub struct DataFrame {
     len: usize,
 }
 
+impl<'a> Index<&'a str> for DataFrame {
+    type Output = Column;
+
+    fn index(&self, name: &'a str) -> &Column {
+        &self.cols[name]
+    }
+}
+
 impl DataFrame {
     pub fn new() -> DataFrame {
         DataFrame {
@@ -102,14 +110,6 @@ impl DataFrame {
     }
 }
 
-impl<'a> Index<&'a str> for DataFrame {
-    type Output = Column;
-
-    fn index(&self, name: &'a str) -> &Column {
-        &self.cols[name]
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Column {
     inner: Arc<ColumnInner>,
@@ -149,6 +149,21 @@ impl Column {
         self.inner.sum()
     }
 
+    pub fn map<I, R>(&self, f: impl Fn(&I) -> R) -> Column
+    where
+        ColumnInner: DynamicMap<I, R>,
+        Collection<R>: Into<Column>,
+    {
+        self.inner.map(f).into()
+    }
+
+    pub fn map_typed<I, R>(&self, f: impl Fn(&I) -> R) -> Collection<R>
+    where
+        ColumnInner: DynamicMap<I, R>,
+    {
+        self.inner.map(f)
+    }
+
     pub fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
     where
         ColumnInner: DynamicMap<I, bool>,
@@ -157,7 +172,7 @@ impl Column {
         // let mask = df["thing"].mask(|v| v > 10)
         // TODO Macro:
         // let mask = m!(df["thing"] > 10)
-        self.inner.mask(test)
+        Mask(self.map_typed(test))
     }
 
     pub fn apply_mask(&self, mask: &Mask) -> Column {
@@ -172,7 +187,7 @@ impl Column {
     }
 }
 
-macro_rules! impl_column_from {
+macro_rules! impl_column_from_array {
     ($fromenum:ident, $fromty:ty) => {
         impl From<Array<$fromty>> for Column {
             fn from(arr: Array<$fromty>) -> Column {
@@ -184,11 +199,10 @@ macro_rules! impl_column_from {
     };
 }
 
-impl_column_from!(Int, i32);
-impl_column_from!(String, String);
-impl_column_from!(Bool, bool);
-// TODO this impl is no good, we want to pass simple f64s
-impl_column_from!(Float, OrderedFloat<f64>);
+impl_column_from_array!(Int, i32);
+impl_column_from_array!(String, String);
+impl_column_from_array!(Bool, bool);
+impl_column_from_array!(Float, OrderedFloat<f64>);
 
 impl From<Array<f64>> for Column {
     fn from(arr: Array<f64>) -> Column {
@@ -197,6 +211,32 @@ impl From<Array<f64>> for Column {
         let arr = unsafe { std::mem::transmute::<_, Array<OrderedFloat<f64>>>(arr) };
         Column {
             inner: Arc::new(ColumnInner::Float(Collection::new(arr))),
+        }
+    }
+}
+
+macro_rules! impl_column_from_collection {
+    ($fromenum:ident, $fromty:ty) => {
+        impl From<Collection<$fromty>> for Column {
+            fn from(coll: Collection<$fromty>) -> Column {
+                Column {
+                    inner: Arc::new(ColumnInner::$fromenum(coll)),
+                }
+            }
+        }
+    };
+}
+
+impl_column_from_collection!(Int, i32);
+impl_column_from_collection!(String, String);
+impl_column_from_collection!(Bool, bool);
+impl_column_from_collection!(Float, OrderedFloat<f64>);
+
+impl From<Collection<f64>> for Column {
+    fn from(coll: Collection<f64>) -> Column {
+        let coll = unsafe { std::mem::transmute::<_, Collection<OrderedFloat<f64>>>(coll) };
+        Column {
+            inner: Arc::new(ColumnInner::Float(coll)),
         }
     }
 }
@@ -265,18 +305,6 @@ impl ColumnInner {
         }
     }
 
-    fn sum(&self) -> f64 {
-        // How should this be done? Always f64? Precision a problem?
-        unimplemented!()
-    }
-
-    fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
-    where
-        ColumnInner: DynamicMap<I, bool>,
-    {
-        Mask(self.map(test))
-    }
-
     fn apply_mask(&self, mask: &Mask) -> Self {
         use ColumnInner::*;
         match self {
@@ -287,6 +315,11 @@ impl ColumnInner {
             Float(c) => Float(c.apply_mask(mask)),
         }
     }
+
+    fn sum(&self) -> f64 {
+        // How should this be done? Always f64? Precision a problem?
+        unimplemented!()
+    }
 }
 
 #[doc(hidden)]
@@ -294,7 +327,7 @@ pub trait DynamicMap<T, R> {
     fn map(&self, f: impl Fn(&T) -> R) -> Collection<R>;
 }
 
-macro_rules! dynamic_apply_impl {
+macro_rules! dynamic_map_impl {
     ($raw:ty, $enum:ident) => {
         impl<R> DynamicMap<$raw, R> for ColumnInner {
             fn map(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
@@ -308,9 +341,9 @@ macro_rules! dynamic_apply_impl {
     };
 }
 
-dynamic_apply_impl!(i32, Int);
-dynamic_apply_impl!(bool, Bool);
-dynamic_apply_impl!(String, String);
+dynamic_map_impl!(i32, Int);
+dynamic_map_impl!(bool, Bool);
+dynamic_map_impl!(String, String);
 
 #[derive(Clone)]
 pub struct Collection<T> {
@@ -447,7 +480,7 @@ impl Mask {
         self.0.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=&bool> {
+    pub fn iter(&self) -> impl Iterator<Item = &bool> {
         self.0.iter()
     }
 }
@@ -461,8 +494,8 @@ mod test {
         let mut df = DataFrame::new();
         df.setcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
         df.setcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
-        df.setcol("c3", vec![true, true, false, true, false])
-            .unwrap();
+        let col3 = Column::from(Collection::new(vec![true, true, false, true, false]));
+        df.setcol("c3", col3);
         let words: Vec<_> = "a b c d e".split(' ').map(String::from).collect();
         df.setcol("c4", words).unwrap();
 
@@ -511,5 +544,16 @@ mod test {
         let mask = df["c1"].mask(|&v: &i32| v > 2);
         let cfilt = df["c1"].apply_mask(&mask);
         assert_eq!(cfilt, Column::from(vec![3, 4]))
+    }
+
+    #[test]
+    fn test_map() {
+        let col = Column::from(vec![1, 2, 3, 4]);
+        let colsqr = col.map(|v: &i32| v * v);
+        assert_eq!(colsqr, Column::from(vec![1, 4, 9, 16]));
+
+        let col = Column::from(vec![1., 2., 3., 4.]);
+        let colsqr = col.map(|v: &f64| v * v);
+        assert_eq!(colsqr, Column::from(vec![1., 4., 9., 16.]));
     }
 }
