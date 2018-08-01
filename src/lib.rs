@@ -65,9 +65,10 @@ impl DataFrame {
 
     // TODO maybe this should allocate
     pub fn coltypes(&self) -> Vec<ColType> {
-        self.order.iter().map(|name| {
-            self.getcol(name).unwrap().coltype()
-        }).collect()
+        self.order
+            .iter()
+            .map(|name| self.getcol(name).unwrap().coltype())
+            .collect()
     }
 
     pub fn build_index(&self, key: &str) {
@@ -120,7 +121,6 @@ impl DataFrame {
         }
         Ok(newdf)
     }
-
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -128,7 +128,7 @@ pub enum ColType {
     Int,
     Float,
     Bool,
-    String
+    String,
 }
 
 impl From<Collection<f64>> for Column {
@@ -184,13 +184,13 @@ impl Column {
     column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
 
     fn coltype(&self) -> ColType {
-        use Column::*;
         use ColType as CT;
+        use Column::*;
         match self {
             Bool(_) => CT::Bool,
             Int(_) => CT::Int,
             String(_) => CT::String,
-            Float(_) => CT::Float
+            Float(_) => CT::Float,
         }
     }
 
@@ -327,9 +327,14 @@ impl<T: PartialEq> PartialEq for Collection<T> {
     }
 }
 
-impl<T> Debug for Collection<T> {
+impl<T: Debug> Debug for Collection<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
-        write!(f, "Collection")
+        write!(
+            f,
+            "Collection {{ indexed: {}, vals: {:?} }}",
+            self.index.borrow().is_some(),
+            self.data
+        )
     }
 }
 

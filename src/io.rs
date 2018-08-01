@@ -1,8 +1,8 @@
 use *;
 
-use std::path::Path;
-use std::io::{Cursor, Read};
 use std::fs::File;
+use std::io::{Cursor, Read};
+use std::path::Path;
 
 enum CollectionBuilder {
     String(Vec<String>),
@@ -18,7 +18,7 @@ impl CollectionBuilder {
             CB::Float(v) => v.push(record.parse::<f64>().unwrap().into()),
             CB::Int(v) => v.push(record.parse::<Int>().unwrap().into()),
             CB::Bool(v) => v.push(record.parse::<bool>().unwrap().into()),
-            CB::String(v) => v.push(record.into())
+            CB::String(v) => v.push(record.into()),
         }
     }
 
@@ -55,21 +55,24 @@ fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
         }
     }
     let mut df = DataFrame::new();
-    for (name, col) in headers.iter().zip(columns.into_iter().map(CollectionBuilder::into_column)) {
+    for (name, col) in headers
+        .iter()
+        .zip(columns.into_iter().map(CollectionBuilder::into_column))
+    {
         df.setcol(name, col)?
     }
     Ok(df)
 }
 
 fn sniff_coltype(item: &str) -> CollectionBuilder {
-    if item.parse::<i64>().is_ok() {
-        CollectionBuilder::Int(Vec::new())
-    } else if item.parse::<f64>().is_ok() {
-        CollectionBuilder::Float(Vec::new())
-    } else if item.parse::<bool>().is_ok() {
-        CollectionBuilder::Bool(Vec::new())
+    if let Ok(v) = item.parse::<i64>() {
+        CollectionBuilder::Int(vec![v])
+    } else if let Ok(v) = item.parse::<f64>() {
+        CollectionBuilder::Float(vec![v.into()])
+    } else if let Ok(v) = item.parse::<bool>() {
+        CollectionBuilder::Bool(vec![v])
     } else {
-        CollectionBuilder::String(Vec::new())
+        CollectionBuilder::String(vec![item.into()])
     }
 }
 
@@ -79,12 +82,16 @@ mod test {
 
     #[test]
     fn test_basic() {
-        let data =
-"this is,a csv,with 3 cols
-1,here,true
-2,are,false
-3,four,true
-4,rows,false";
+        let data = "this is,a csv,with 4,cols
+1,here,true,1.2
+2,are,false,2
+0,four,true,0
+-4,rows,false,-9";
         let df = read_string(data).unwrap();
+        assert_eq!(
+            df.coltypes(),
+            vec![ColType::Int, ColType::String, ColType::Bool, ColType::Float]
+        );
+        assert_eq!(df["this is"], Column::from(vec![1, 2, 0, -4]));
     }
 }
