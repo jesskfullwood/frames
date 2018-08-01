@@ -27,19 +27,18 @@ fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
     let ncols = headers.len();
     let csviter = reader.records();
     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-    let coltypes: Vec<_> = row1.iter().map(sniff_type).collect();
+    let columns: Vec<_> = row1.iter().map(sniff_coltype).collect();
 }
 
-fn sniff_type(item: &str) -> ColType {
-    use self::ColType::*;
+fn sniff_coltype(item: &str) -> Column {
     if item.parse::<i64>().is_ok() {
-        Int
+        Column::from(Collection::<Int>::init())
     } else if item.parse::<f64>().is_ok() {
-        Float
+        Column::from(Collection::<Float>::init())
     } else if item.parse::<bool>().is_ok() {
-        Bool
+        Column::from(Collection::<bool>::init())
     } else {
-        String
+        Column::from(Collection::<String>::init())
     }
 }
 

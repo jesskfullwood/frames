@@ -21,6 +21,8 @@ type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
+type Float = OrderedFloat<f64>;
+type Int = i64;
 
 // TODO "TypedFrame" with a custom-derive? Using an HList?
 // TODO Pretty-printing of DataFrame
@@ -202,16 +204,16 @@ macro_rules! impl_column_from_array {
     };
 }
 
-impl_column_from_array!(Int, i32);
+impl_column_from_array!(Int, Int);
 impl_column_from_array!(String, String);
 impl_column_from_array!(Bool, bool);
-impl_column_from_array!(Float, OrderedFloat<f64>);
+impl_column_from_array!(Float, Float);
 
 impl From<Array<f64>> for Column {
     fn from(arr: Array<f64>) -> Column {
         // This looks very dangerous, but, OrderedFloat is just a newtype with no extra
         // invariants, so it should be safe (prove me wrong?)
-        let arr = unsafe { std::mem::transmute::<_, Array<OrderedFloat<f64>>>(arr) };
+        let arr = unsafe { std::mem::transmute::<_, Array<Float>>(arr) };
         Column {
             inner: Arc::new(ColumnInner::Float(Collection::new(arr))),
         }
@@ -230,14 +232,14 @@ macro_rules! impl_column_from_collection {
     };
 }
 
-impl_column_from_collection!(Int, i32);
+impl_column_from_collection!(Int, Int);
 impl_column_from_collection!(String, String);
 impl_column_from_collection!(Bool, bool);
-impl_column_from_collection!(Float, OrderedFloat<f64>);
+impl_column_from_collection!(Float, Float);
 
 impl From<Collection<f64>> for Column {
     fn from(coll: Collection<f64>) -> Column {
-        let coll = unsafe { std::mem::transmute::<_, Collection<OrderedFloat<f64>>>(coll) };
+        let coll = unsafe { std::mem::transmute::<_, Collection<Float>>(coll) };
         Column {
             inner: Arc::new(ColumnInner::Float(coll)),
         }
@@ -248,9 +250,9 @@ impl From<Collection<f64>> for Column {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ColumnInner {
     Bool(Collection<bool>),
-    Int(Collection<i32>),
+    Int(Collection<Int>),
     String(Collection<String>),
-    Float(Collection<OrderedFloat<f64>>),
+    Float(Collection<Float>),
 }
 
 // TODO can we make the function bit just an expression? (with args provided to expr if necessary?)
@@ -344,7 +346,7 @@ macro_rules! dynamic_map_impl {
     };
 }
 
-dynamic_map_impl!(i32, Int);
+dynamic_map_impl!(Int, Int);
 dynamic_map_impl!(bool, Bool);
 dynamic_map_impl!(String, String);
 
@@ -368,6 +370,21 @@ impl<T> Debug for Collection<T> {
 }
 
 impl<T> Collection<T> {
+    /// Create an empty collection
+    /// Only mean for internal use
+    pub(crate) fn init() -> Collection<T> {
+        Collection {
+            data: Vec::new(),
+            index: RefCell::new(None)
+        }
+    }
+
+    // TODO I think this idiom will disapear after
+    // moving to Arrow
+    pub(crate) fn push(&mut self, val: T) {
+        self.data.push(val)
+    }
+
     fn new(data: Array<T>) -> Collection<T> {
         Collection {
             data,
@@ -544,7 +561,7 @@ mod test {
     fn test_mask() {
         let mut df = DataFrame::new();
         df.setcol("c1", vec![1, 2, 3, 4]).unwrap();
-        let mask = df["c1"].mask(|&v: &i32| v > 2);
+        let mask = df["c1"].mask(|&v: &Int| v > 2);
         let cfilt = df["c1"].apply_mask(&mask);
         assert_eq!(cfilt, Column::from(vec![3, 4]))
     }
@@ -552,7 +569,7 @@ mod test {
     #[test]
     fn test_map() {
         let col = Column::from(vec![1, 2, 3, 4]);
-        let colsqr = col.map(|v: &i32| v * v);
+        let colsqr = col.map(|v: &Int| v * v);
         assert_eq!(colsqr, Column::from(vec![1, 4, 9, 16]));
 
         // TODO make this work
