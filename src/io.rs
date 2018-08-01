@@ -1,14 +1,36 @@
 use *;
 
-use std::fs::File;
-use std::io::{Cursor, Read};
 use std::path::Path;
+use std::io::{Cursor, Read};
+use std::fs::File;
 
-enum ColType {
-    String,
-    Bool,
-    Float,
-    Int,
+enum CollectionBuilder {
+    String(Vec<String>),
+    Bool(Vec<bool>),
+    Float(Vec<Float>),
+    Int(Vec<Int>),
+}
+
+impl CollectionBuilder {
+    fn push(&mut self, record: &str) {
+        use self::CollectionBuilder as CB;
+        match self {
+            CB::Float(v) => v.push(record.parse::<f64>().unwrap().into()),
+            CB::Int(v) => v.push(record.parse::<Int>().unwrap().into()),
+            CB::Bool(v) => v.push(record.parse::<bool>().unwrap().into()),
+            CB::String(v) => v.push(record.into())
+        }
+    }
+
+    fn into_column(self) -> Column {
+        use self::CollectionBuilder as CB;
+        match self {
+            CB::Float(v) => Column::from(v),
+            CB::Int(v) => Column::from(v),
+            CB::Bool(v) => Column::from(v),
+            CB::String(v) => Column::from(v),
+        }
+    }
 }
 
 fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
@@ -22,23 +44,32 @@ fn read_string(data: &str) -> Result<DataFrame> {
 }
 
 fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
-    let reader = csv::Reader::from_reader(reader);
-    let headers = reader.headers()?;
-    let ncols = headers.len();
-    let csviter = reader.records();
+    let mut reader = csv::Reader::from_reader(reader);
+    let headers = reader.headers()?.clone();
+    let mut csviter = reader.records();
     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-    let columns: Vec<_> = row1.iter().map(sniff_coltype).collect();
+    let mut columns: Vec<_> = row1.iter().map(sniff_coltype).collect();
+    for row in csviter {
+        for (elem, col) in row?.iter().zip(columns.iter_mut()) {
+            col.push(elem)
+        }
+    }
+    let mut df = DataFrame::new();
+    for (name, col) in headers.iter().zip(columns.into_iter().map(CollectionBuilder::into_column)) {
+        df.setcol(name, col)?
+    }
+    Ok(df)
 }
 
-fn sniff_coltype(item: &str) -> Column {
+fn sniff_coltype(item: &str) -> CollectionBuilder {
     if item.parse::<i64>().is_ok() {
-        Column::from(Collection::<Int>::init())
+        CollectionBuilder::Int(Vec::new())
     } else if item.parse::<f64>().is_ok() {
-        Column::from(Collection::<Float>::init())
+        CollectionBuilder::Float(Vec::new())
     } else if item.parse::<bool>().is_ok() {
-        Column::from(Collection::<bool>::init())
+        CollectionBuilder::Bool(Vec::new())
     } else {
-        Column::from(Collection::<String>::init())
+        CollectionBuilder::String(Vec::new())
     }
 }
 
@@ -48,11 +79,13 @@ mod test {
 
     #[test]
     fn test_basic() {
-        let data = "this is,a csv,with 3 cols
+        let data =
+"this is,a csv,with 3 cols
 1,here,true
 2,are,false
 3,four,true
 4,rows,false";
         let df = read_string(data).unwrap();
+
     }
 }
