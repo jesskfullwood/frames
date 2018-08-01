@@ -1,14 +1,14 @@
 use *;
 
-use std::path::Path;
-use std::io::{Cursor, Read};
 use std::fs::File;
+use std::io::{Cursor, Read};
+use std::path::Path;
 
 enum ColType {
     String,
     Bool,
     Float,
-    Int
+    Int,
 }
 
 fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
@@ -48,13 +48,11 @@ mod test {
 
     #[test]
     fn test_basic() {
-        let data =
-"this is,a csv,with 3 cols
+        let data = "this is,a csv,with 3 cols
 1,here,true
 2,are,false
 3,four,true
 4,rows,false";
         let df = read_string(data).unwrap();
-
     }
 }

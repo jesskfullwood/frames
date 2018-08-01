@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate failure;
-extern crate num;
 extern crate csv;
+extern crate num;
 extern crate ordered_float;
 
 use std::cell::RefCell;
@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Index;
-use std::sync::Arc;
 
 use num::traits::AsPrimitive;
 use num::Num;
@@ -115,90 +114,11 @@ impl DataFrame {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Column {
-    inner: Arc<ColumnInner>,
-}
-
-// TODO can we use a delegate macro here? much duplication
-impl Column {
-    fn from_inner(inner: ColumnInner) -> Self {
-        Column {
-            inner: Arc::new(inner),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    pub fn has_index(&self) -> bool {
-        self.inner.has_index()
-    }
-
-    pub fn build_index(&self) {
-        self.inner.build_index()
-    }
-
-    fn inner_join_locs(&self, other: &Column) -> (Vec<usize>, Vec<usize>) {
-        self.inner.inner_join_locs(&*other.inner)
-    }
-
-    fn copy_locs(&self, locs: &[usize]) -> Self {
-        Self {
-            inner: Arc::new(self.inner.copy_locs(locs)),
-        }
-    }
-
-    pub fn sum(&self) -> f64 {
-        self.inner.sum()
-    }
-
-    pub fn map<I, R>(&self, f: impl Fn(&I) -> R) -> Column
-    where
-        ColumnInner: DynamicMap<I, R>,
-        Collection<R>: Into<Column>,
-    {
-        self.inner.map(f).into()
-    }
-
-    pub fn map_typed<I, R>(&self, f: impl Fn(&I) -> R) -> Collection<R>
-    where
-        ColumnInner: DynamicMap<I, R>,
-    {
-        self.inner.map(f)
-    }
-
-    pub fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
-    where
-        ColumnInner: DynamicMap<I, bool>,
-    {
-        // Example use:
-        // let mask = df["thing"].mask(|v| v > 10)
-        // TODO Macro:
-        // let mask = m!(df["thing"] > 10)
-        Mask(self.map_typed(test))
-    }
-
-    pub fn apply_mask(&self, mask: &Mask) -> Column {
-        if mask.len() != self.len() {
-            panic!(
-                "Mask length doesn't match ({}, expected {})",
-                mask.len(),
-                self.len()
-            )
-        }
-        Column::from_inner(self.inner.apply_mask(mask))
-    }
-}
-
 macro_rules! impl_column_from_array {
     ($fromenum:ident, $fromty:ty) => {
         impl From<Array<$fromty>> for Column {
             fn from(arr: Array<$fromty>) -> Column {
-                Column {
-                    inner: Arc::new(ColumnInner::$fromenum(Collection::new(arr))),
-                }
+                Column::$fromenum(Collection::new(arr))
             }
         }
     };
@@ -214,9 +134,7 @@ impl From<Array<f64>> for Column {
         // This looks very dangerous, but, OrderedFloat is just a newtype with no extra
         // invariants, so it should be safe (prove me wrong?)
         let arr = unsafe { std::mem::transmute::<_, Array<Float>>(arr) };
-        Column {
-            inner: Arc::new(ColumnInner::Float(Collection::new(arr))),
-        }
+        Column::Float(Collection::new(arr))
     }
 }
 
@@ -224,9 +142,7 @@ macro_rules! impl_column_from_collection {
     ($fromenum:ident, $fromty:ty) => {
         impl From<Collection<$fromty>> for Column {
             fn from(coll: Collection<$fromty>) -> Column {
-                Column {
-                    inner: Arc::new(ColumnInner::$fromenum(coll)),
-                }
+                Column::$fromenum(coll)
             }
         }
     };
@@ -240,15 +156,13 @@ impl_column_from_collection!(Float, Float);
 impl From<Collection<f64>> for Column {
     fn from(coll: Collection<f64>) -> Column {
         let coll = unsafe { std::mem::transmute::<_, Collection<Float>>(coll) };
-        Column {
-            inner: Arc::new(ColumnInner::Float(coll)),
-        }
+        Column::Float(coll)
     }
 }
 
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
-pub enum ColumnInner {
+pub enum Column {
     Bool(Collection<bool>),
     Int(Collection<Int>),
     String(Collection<String>),
@@ -259,7 +173,7 @@ pub enum ColumnInner {
 macro_rules! column_apply {
     ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
         fn $fname(self: &Self, $($arg:$argty),*) -> $rtn {
-            use ColumnInner::*;
+            use Column::*;
             match self {
                   Bool(c) => $func(&c $(,$arg)*),
                    Int(c) => $func(&c $(,$arg)*),
@@ -273,7 +187,7 @@ macro_rules! column_apply {
 macro_rules! column_apply_pair {
     ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
         fn $fname(self: &Self, other: &Self, $($arg:$argty),*) -> $rtn {
-            use ColumnInner::*;
+            use Column::*;
             match (self, other) {
                 (Bool(c1), Bool(c2))     => $func(&c1, &c2 $(,$arg)*),
                 (Int(c1), Int(c2))       => $func(&c1, &c2 $(,$arg)*),
@@ -285,14 +199,14 @@ macro_rules! column_apply_pair {
     }
 }
 
-impl ColumnInner {
+impl Column {
     column_apply!(len, usize => Collection::len);
     column_apply!(has_index, bool => Collection::has_index);
     column_apply!(build_index, () => Collection::build_index);
     column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
 
     fn copy_locs(&self, locs: &[usize]) -> Self {
-        use ColumnInner::*;
+        use Column::*;
         match self {
             Bool(c) => Bool(c.copy_locs(locs)),
             Int(c) => Int(c.copy_locs(locs)),
@@ -301,17 +215,24 @@ impl ColumnInner {
         }
     }
 
-    fn matching_types(&self, other: &ColumnInner) -> bool {
+    fn matching_types(&self, other: &Column) -> bool {
         match (self, other) {
-            (ColumnInner::Bool(_), ColumnInner::Bool(_)) => true,
-            (ColumnInner::Int(_), ColumnInner::Int(_)) => true,
-            (ColumnInner::String(_), ColumnInner::String(_)) => true,
+            (Column::Bool(_), Column::Bool(_)) => true,
+            (Column::Int(_), Column::Int(_)) => true,
+            (Column::String(_), Column::String(_)) => true,
             _ => false,
         }
     }
 
     fn apply_mask(&self, mask: &Mask) -> Self {
-        use ColumnInner::*;
+        use Column::*;
+        if mask.len() != self.len() {
+            panic!(
+                "Mask length doesn't match ({}, expected {})",
+                mask.len(),
+                self.len()
+            )
+        }
         match self {
             // TODO be nice to call c.wrap()
             Bool(c) => Bool(c.apply_mask(mask)),
@@ -321,22 +242,37 @@ impl ColumnInner {
         }
     }
 
-    fn sum(&self) -> f64 {
-        // How should this be done? Always f64? Precision a problem?
-        unimplemented!()
+    pub fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
+    where
+        Self: DynamicMap<I, bool>,
+    {
+        // Example use:
+        // let mask = df["thing"].mask(|v| v > 10)
+        // TODO Macro:
+        // let mask = m!(df["thing"] > 10)
+        Mask(self.map_typed(test))
     }
+
+    fn map<T, R>(&self, f: impl Fn(&T) -> R) -> Column
+    where
+        Self: DynamicMap<T, R> + From<Collection<R>>,
+    {
+        Self::from(self.map_typed(f))
+    }
+
+    // TODO sum, filter, reduce
 }
 
 #[doc(hidden)]
 pub trait DynamicMap<T, R> {
-    fn map(&self, f: impl Fn(&T) -> R) -> Collection<R>;
+    fn map_typed(&self, f: impl Fn(&T) -> R) -> Collection<R>;
 }
 
 macro_rules! dynamic_map_impl {
     ($raw:ty, $enum:ident) => {
-        impl<R> DynamicMap<$raw, R> for ColumnInner {
-            fn map(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
-                use ColumnInner::*;
+        impl<R> DynamicMap<$raw, R> for Column {
+            fn map_typed(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
+                use Column::*;
                 match self {
                     $enum(c) => c.map(f),
                     _ => panic!("Can't apply function to TODO column"),
@@ -375,7 +311,7 @@ impl<T> Collection<T> {
     pub(crate) fn init() -> Collection<T> {
         Collection {
             data: Vec::new(),
-            index: RefCell::new(None)
+            index: RefCell::new(None),
         }
     }
 
