@@ -6,7 +6,7 @@ extern crate ordered_float;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::Index;
 
@@ -17,7 +17,7 @@ use ordered_float::OrderedFloat;
 pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
-type Result<T> = StdResult<T, failure::Error>;
+pub type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
 type Float = OrderedFloat<f64>;
@@ -242,7 +242,7 @@ impl Column {
         Mask(self.map_typed(test))
     }
 
-    fn map<T, R>(&self, f: impl Fn(&T) -> R) -> Column
+    pub fn map<T, R>(&self, f: impl Fn(&T) -> R) -> Column
     where
         Self: DynamicMap<T, R> + From<Collection<R>>,
     {
@@ -250,6 +250,13 @@ impl Column {
     }
 
     // TODO sum, filter, reduce
+
+    pub fn describe(&self) -> Option<Describe> {
+        match self {
+            Column::Int(c) => Some(c.describe()),
+            Column::Float(c) => Some(c.describe()),
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -339,21 +346,6 @@ impl<T: Debug> Debug for Collection<T> {
 }
 
 impl<T> Collection<T> {
-    /// Create an empty collection
-    /// Only mean for internal use
-    pub(crate) fn init() -> Collection<T> {
-        Collection {
-            data: Vec::new(),
-            index: RefCell::new(None),
-        }
-    }
-
-    // TODO I think this idiom will disapear after
-    // moving to Arrow
-    pub(crate) fn push(&mut self, val: T) {
-        self.data.push(val)
-    }
-
     fn new(data: Array<T>) -> Collection<T> {
         Collection {
             data,
@@ -385,7 +377,7 @@ impl<T: Clone> Collection<T> {
         Collection::new(data)
     }
 
-    fn apply_mask(&self, mask: &Mask) -> Self {
+    pub fn apply_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
         Collection::new(
             self.iter()
@@ -397,7 +389,7 @@ impl<T: Clone> Collection<T> {
 }
 
 impl<T: Hash + Clone + Eq> Collection<T> {
-    fn build_index(&self) {
+    pub fn build_index(&self) {
         if self.has_index() {
             return;
         }
@@ -433,6 +425,8 @@ impl<T: Hash + Clone + Eq> Collection<T> {
 }
 
 impl<T: Num + Copy> Collection<T> {
+    // TODO big risk of overflow for ints
+    // use some kind of bigint
     pub fn sum(&self) -> T {
         self.data.iter().fold(num::zero(), |acc, &v| acc + v)
     }
@@ -459,6 +453,46 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
     pub fn stdev(&self) -> f64 {
         self.variance().sqrt()
     }
+
+    pub fn describe(&self) -> Describe {
+        let mut min = std::f64::MAX;
+        let mut max = std::f64::MIN;
+        let mut sigmafxsqr: f64 = 0.;
+        let mut sigmafx: f64 = 0.;
+
+        self.data.iter().for_each(|n| {
+            let n: f64 = n.as_();
+            if n < min {
+                min = n;
+            }
+            if n > max {
+                max = n
+            }
+            sigmafxsqr += n * n;
+            sigmafx += n;
+        });
+        let mean = sigmafx / self.len() as f64;
+        let variance = sigmafxsqr / self.len() as f64 - mean * mean;
+        Describe {
+            min,
+            max,
+            mean,
+            stdev: variance.sqrt()
+        }
+    }
+}
+
+impl Collection<Float> {
+    fn cast(&self) -> &Collection<Float> {
+    }
+}
+
+pub struct Describe {
+    // TODO Quartiles?
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub stdev: f64,
 }
 
 pub struct Mask(Collection<bool>);

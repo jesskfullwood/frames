@@ -58,6 +58,7 @@ impl CollectionBuilder {
                 // TODO could this lose information? Leading/trailing spaces?
                 CB::String(v.iter().map(|&v| v.to_string()).collect())
             }
+            (CB::Bool(v), CT::String) => CB::String(v.iter().map(|&v| v.to_string()).collect()),
             _ => bail!("Cannot perform conversion"),
         };
         Ok(out)
@@ -129,6 +130,14 @@ impl ColType {
     }
 }
 
+impl DataFrame {
+    pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
+        let mut writer = csv::Writer::from_path(path)?;
+        writer.write_record(self.colnames())?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -152,8 +161,8 @@ mod test {
     fn test_lookahead_read() {
         use ColType as CT;
         let data = "anum,aword,numword
--5,True,1
-0,what,hey
+-5,true,1
+0,false,hey
 4,False,2
 0.6,true,nay
 5.,rah,3
@@ -162,5 +171,4 @@ mod test {
         assert_eq!(df.coltypes(), vec![CT::Float, CT::String, CT::String]);
         assert_eq!(df["anum"], Column::from(vec![-5., 0., 4., 0.6, 5.]))
     }
-
 }
