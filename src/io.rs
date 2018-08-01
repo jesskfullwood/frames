@@ -54,6 +54,10 @@ impl CollectionBuilder {
             (CB::Int(v), CT::Float) => {
                 CB::Float(v.iter().map(|&v| Float::from(v as f64)).collect())
             }
+            (CB::Int(v), CT::String) => {
+                // TODO could this lose information? Leading/trailing spaces?
+                CB::String(v.iter().map(|&v| v.to_string()).collect())
+            }
             _ => bail!("Cannot perform conversion"),
         };
         Ok(out)
@@ -146,14 +150,16 @@ mod test {
 
     #[test]
     fn test_lookahead_read() {
-        let data = "anum,aword
--5,True
-0,what
-4,False
-0.6,true
-5.,rah
+        use ColType as CT;
+        let data = "anum,aword,numword
+-5,True,1
+0,what,hey
+4,False,2
+0.6,true,nay
+5.,rah,3
 ";
         let df = read_string(data).unwrap();
+        assert_eq!(df.coltypes(), vec![CT::Float, CT::String, CT::String]);
         assert_eq!(df["anum"], Column::from(vec![-5., 0., 4., 0.6, 5.]))
     }
 
