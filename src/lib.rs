@@ -20,7 +20,8 @@ type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
 type Array<T> = Vec<T>;
-type Float = OrderedFloat<f64>;
+type Float = f64;
+type OrdFloat = OrderedFloat<f64>;
 type Int = i64;
 
 // TODO "TypedFrame" with a custom-derive? Using an HList?
@@ -131,13 +132,6 @@ pub enum ColType {
     String,
 }
 
-impl From<Collection<f64>> for Column {
-    fn from(coll: Collection<f64>) -> Column {
-        let coll = unsafe { std::mem::transmute::<_, Collection<Float>>(coll) };
-        Column::Float(coll)
-    }
-}
-
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Column {
@@ -162,26 +156,11 @@ macro_rules! column_apply {
     }
 }
 
-macro_rules! column_apply_pair {
-    ($fname:ident, $rtn:ty $(,$arg:ident: $argty:ty)* => $func:expr ) => {
-        fn $fname(self: &Self, other: &Self, $($arg:$argty),*) -> $rtn {
-            use Column::*;
-            match (self, other) {
-                (Bool(c1), Bool(c2))     => $func(&c1, &c2 $(,$arg)*),
-                (Int(c1), Int(c2))       => $func(&c1, &c2 $(,$arg)*),
-                (String(c1), String(c2)) => $func(&c1, &c2 $(,$arg)*),
-                (Float(c1), Float(c2))   => $func(&c1, &c2 $(,$arg)*),
-                _ => panic!("Mismatching column types"),
-            }
-        }
-    }
-}
-
 impl Column {
     column_apply!(len, usize => Collection::len);
     column_apply!(has_index, bool => Collection::has_index);
-    column_apply!(build_index, () => Collection::build_index);
-    column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
+    // column_apply!(build_index, () => Collection::build_index);
+    // column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
 
     fn coltype(&self) -> ColType {
         use ColType as CT;
@@ -191,6 +170,27 @@ impl Column {
             Int(_) => CT::Int,
             String(_) => CT::String,
             Float(_) => CT::Float,
+        }
+    }
+
+    fn build_index(&self) {
+        use Column::*;
+        match self {
+            Bool(c) => c.build_index(),
+            Int(c) => c.build_index(),
+            String(c) => c.build_index(),
+            Float(c) => c.as_ordered().build_index(),
+        }
+    }
+
+    fn inner_join_locs(&self, other: &Self) -> (Vec<usize>, Vec<usize>) {
+        use Column::*;
+        match (self, other) {
+            (Bool(c1), Bool(c2)) => c1.inner_join_locs(c2),
+            (Int(c1), Int(c2)) => c1.inner_join_locs(c2),
+            (String(c1), String(c2)) => c1.inner_join_locs(c2),
+            (Float(c1), Float(c2)) => c1.as_ordered().inner_join_locs(c2.as_ordered()),
+            _ => panic!("Mismatching column types"),
         }
     }
 
@@ -204,16 +204,7 @@ impl Column {
         }
     }
 
-    fn matching_types(&self, other: &Column) -> bool {
-        match (self, other) {
-            (Column::Bool(_), Column::Bool(_)) => true,
-            (Column::Int(_), Column::Int(_)) => true,
-            (Column::String(_), Column::String(_)) => true,
-            _ => false,
-        }
-    }
-
-    fn apply_mask(&self, mask: &Mask) -> Self {
+    pub fn apply_mask(&self, mask: &Mask) -> Self {
         use Column::*;
         if mask.len() != self.len() {
             panic!(
@@ -255,6 +246,7 @@ impl Column {
         match self {
             Column::Int(c) => Some(c.describe()),
             Column::Float(c) => Some(c.describe()),
+            _ => None,
         }
     }
 }
@@ -296,15 +288,6 @@ impl_column_from_array!(Int, Int);
 impl_column_from_array!(String, String);
 impl_column_from_array!(Bool, bool);
 impl_column_from_array!(Float, Float);
-
-impl From<Array<f64>> for Column {
-    fn from(arr: Array<f64>) -> Column {
-        // This looks very dangerous, but, OrderedFloat is just a newtype with no extra
-        // invariants, so it should be safe (prove me wrong?)
-        let arr = unsafe { std::mem::transmute::<_, Array<Float>>(arr) };
-        Column::Float(Collection::new(arr))
-    }
-}
 
 macro_rules! impl_column_from_collection {
     ($fromenum:ident, $fromty:ty) => {
@@ -477,13 +460,14 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
             min,
             max,
             mean,
-            stdev: variance.sqrt()
+            stdev: variance.sqrt(),
         }
     }
 }
 
 impl Collection<Float> {
-    fn cast(&self) -> &Collection<Float> {
+    fn as_ordered(&self) -> &Collection<OrdFloat> {
+        unsafe { &*(self as *const Self as *const Collection<OrdFloat>) }
     }
 }
 

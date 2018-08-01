@@ -33,17 +33,6 @@ impl CollectionBuilder {
         }
     }
 
-    fn coltype(&self) -> ColType {
-        use self::CollectionBuilder as CB;
-        use ColType as CT;
-        match self {
-            CB::Float(_) => CT::Float,
-            CB::Int(_) => CT::Int,
-            CB::Bool(_) => CT::Bool,
-            CB::String(_) => CT::String,
-        }
-    }
-
     fn try_cast(&self, newty: ColType) -> Result<Self> {
         // TODO valid casts:
         // int -> float -> string
@@ -134,6 +123,7 @@ impl DataFrame {
     pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
         let mut writer = csv::Writer::from_path(path)?;
         writer.write_record(self.colnames())?;
+        unimplemented!();
         Ok(())
     }
 }
