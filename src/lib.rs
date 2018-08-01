@@ -58,8 +58,16 @@ impl DataFrame {
         self.cols.len()
     }
 
+    // TODO maybe this shouldn't allocate?
     pub fn colnames(&self) -> Vec<&str> {
         self.order.iter().map(|s| s.as_str()).collect()
+    }
+
+    // TODO maybe this should allocate
+    pub fn coltypes(&self) -> Vec<ColType> {
+        self.order.iter().map(|name| {
+            self.getcol(name).unwrap().coltype()
+        }).collect()
     }
 
     pub fn build_index(&self, key: &str) {
@@ -112,46 +120,16 @@ impl DataFrame {
         }
         Ok(newdf)
     }
+
 }
 
-macro_rules! impl_column_from_array {
-    ($fromenum:ident, $fromty:ty) => {
-        impl From<Array<$fromty>> for Column {
-            fn from(arr: Array<$fromty>) -> Column {
-                Column::$fromenum(Collection::new(arr))
-            }
-        }
-    };
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ColType {
+    Int,
+    Float,
+    Bool,
+    String
 }
-
-impl_column_from_array!(Int, Int);
-impl_column_from_array!(String, String);
-impl_column_from_array!(Bool, bool);
-impl_column_from_array!(Float, Float);
-
-impl From<Array<f64>> for Column {
-    fn from(arr: Array<f64>) -> Column {
-        // This looks very dangerous, but, OrderedFloat is just a newtype with no extra
-        // invariants, so it should be safe (prove me wrong?)
-        let arr = unsafe { std::mem::transmute::<_, Array<Float>>(arr) };
-        Column::Float(Collection::new(arr))
-    }
-}
-
-macro_rules! impl_column_from_collection {
-    ($fromenum:ident, $fromty:ty) => {
-        impl From<Collection<$fromty>> for Column {
-            fn from(coll: Collection<$fromty>) -> Column {
-                Column::$fromenum(coll)
-            }
-        }
-    };
-}
-
-impl_column_from_collection!(Int, Int);
-impl_column_from_collection!(String, String);
-impl_column_from_collection!(Bool, bool);
-impl_column_from_collection!(Float, Float);
 
 impl From<Collection<f64>> for Column {
     fn from(coll: Collection<f64>) -> Column {
@@ -204,6 +182,17 @@ impl Column {
     column_apply!(has_index, bool => Collection::has_index);
     column_apply!(build_index, () => Collection::build_index);
     column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
+
+    fn coltype(&self) -> ColType {
+        use Column::*;
+        use ColType as CT;
+        match self {
+            Bool(_) => CT::Bool,
+            Int(_) => CT::Int,
+            String(_) => CT::String,
+            Float(_) => CT::Float
+        }
+    }
 
     fn copy_locs(&self, locs: &[usize]) -> Self {
         use Column::*;
@@ -285,6 +274,45 @@ macro_rules! dynamic_map_impl {
 dynamic_map_impl!(Int, Int);
 dynamic_map_impl!(bool, Bool);
 dynamic_map_impl!(String, String);
+
+macro_rules! impl_column_from_array {
+    ($fromenum:ident, $fromty:ty) => {
+        impl From<Array<$fromty>> for Column {
+            fn from(arr: Array<$fromty>) -> Column {
+                Column::$fromenum(Collection::new(arr))
+            }
+        }
+    };
+}
+
+impl_column_from_array!(Int, Int);
+impl_column_from_array!(String, String);
+impl_column_from_array!(Bool, bool);
+impl_column_from_array!(Float, Float);
+
+impl From<Array<f64>> for Column {
+    fn from(arr: Array<f64>) -> Column {
+        // This looks very dangerous, but, OrderedFloat is just a newtype with no extra
+        // invariants, so it should be safe (prove me wrong?)
+        let arr = unsafe { std::mem::transmute::<_, Array<Float>>(arr) };
+        Column::Float(Collection::new(arr))
+    }
+}
+
+macro_rules! impl_column_from_collection {
+    ($fromenum:ident, $fromty:ty) => {
+        impl From<Collection<$fromty>> for Column {
+            fn from(coll: Collection<$fromty>) -> Column {
+                Column::$fromenum(coll)
+            }
+        }
+    };
+}
+
+impl_column_from_collection!(Int, Int);
+impl_column_from_collection!(String, String);
+impl_column_from_collection!(Bool, bool);
+impl_column_from_collection!(Float, Float);
 
 #[derive(Clone)]
 pub struct Collection<T> {

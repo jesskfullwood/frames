@@ -86,6 +86,5 @@ mod test {
 3,four,true
 4,rows,false";
         let df = read_string(data).unwrap();
-
     }
 }
