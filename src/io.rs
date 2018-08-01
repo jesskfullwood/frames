@@ -12,14 +12,15 @@ enum CollectionBuilder {
 }
 
 impl CollectionBuilder {
-    fn push(&mut self, record: &str) {
+    fn push(&mut self, record: &str) -> Result<()> {
         use self::CollectionBuilder as CB;
-        match self {
-            CB::Float(v) => v.push(record.parse::<f64>().unwrap().into()),
-            CB::Int(v) => v.push(record.parse::<Int>().unwrap().into()),
-            CB::Bool(v) => v.push(record.parse::<bool>().unwrap().into()),
+        let out = match self {
+            CB::Float(v) => v.push(record.parse::<f64>()?.into()),
+            CB::Int(v) => v.push(record.parse::<Int>()?),
+            CB::Bool(v) => v.push(record.parse::<bool>()?),
             CB::String(v) => v.push(record.into()),
-        }
+        };
+        Ok(out)
     }
 
     fn into_column(self) -> Column {
@@ -31,27 +32,62 @@ impl CollectionBuilder {
             CB::String(v) => Column::from(v),
         }
     }
+
+    fn coltype(&self) -> ColType {
+        use self::CollectionBuilder as CB;
+        use ColType as CT;
+        match self {
+            CB::Float(_) => CT::Float,
+            CB::Int(_) => CT::Int,
+            CB::Bool(_) => CT::Bool,
+            CB::String(_) => CT::String,
+        }
+    }
+
+    fn try_cast(&self, newty: ColType) -> Result<Self> {
+        // TODO valid casts:
+        // int -> float -> string
+        // bool -> string
+        use self::CollectionBuilder as CB;
+        use ColType as CT;
+        let out = match (self, newty) {
+            (CB::Int(v), CT::Float) => {
+                CB::Float(v.iter().map(|&v| Float::from(v as f64)).collect())
+            }
+            _ => bail!("Cannot perform conversion"),
+        };
+        Ok(out)
+    }
 }
 
-fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
+pub fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
     let f = File::open(path)?;
     read_reader(f)
 }
 
-fn read_string(data: &str) -> Result<DataFrame> {
+pub fn read_string(data: &str) -> Result<DataFrame> {
     let cur = Cursor::new(data);
     read_reader(cur)
 }
 
-fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
+pub fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
     let mut reader = csv::Reader::from_reader(reader);
     let headers = reader.headers()?.clone();
     let mut csviter = reader.records();
     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-    let mut columns: Vec<_> = row1.iter().map(sniff_coltype).collect();
+    let mut columns: Vec<_> = row1.iter()
+        .map(|v| {
+            let mut col = ColType::sniff(v).to_builder();
+            col.push(v).unwrap();
+            col
+        })
+        .collect();
     for row in csviter {
         for (elem, col) in row?.iter().zip(columns.iter_mut()) {
-            col.push(elem)
+            if col.push(elem).is_err() {
+                *col = col.try_cast(ColType::sniff(elem))?;
+                col.push(elem).unwrap();
+            }
         }
     }
     let mut df = DataFrame::new();
@@ -64,15 +100,28 @@ fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
     Ok(df)
 }
 
-fn sniff_coltype(item: &str) -> CollectionBuilder {
-    if let Ok(v) = item.parse::<i64>() {
-        CollectionBuilder::Int(vec![v])
-    } else if let Ok(v) = item.parse::<f64>() {
-        CollectionBuilder::Float(vec![v.into()])
-    } else if let Ok(v) = item.parse::<bool>() {
-        CollectionBuilder::Bool(vec![v])
-    } else {
-        CollectionBuilder::String(vec![item.into()])
+impl ColType {
+    fn sniff(item: &str) -> ColType {
+        use ColType as CT;
+        if item.parse::<i64>().is_ok() {
+            CT::Int
+        } else if item.parse::<f64>().is_ok() {
+            CT::Float
+        } else if item.parse::<bool>().is_ok() {
+            CT::Bool
+        } else {
+            CT::String
+        }
+    }
+
+    fn to_builder(&self) -> CollectionBuilder {
+        use ColType as CT;
+        match self {
+            CT::Int => CollectionBuilder::Int(Vec::new()),
+            CT::Float => CollectionBuilder::Float(Vec::new()),
+            CT::Bool => CollectionBuilder::Bool(Vec::new()),
+            CT::String => CollectionBuilder::String(Vec::new()),
+        }
     }
 }
 
@@ -81,7 +130,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_basic() {
+    fn test_basic_read() {
         let data = "this is,a csv,with 4,cols
 1,here,true,1.2
 2,are,false,2
@@ -94,4 +143,18 @@ mod test {
         );
         assert_eq!(df["this is"], Column::from(vec![1, 2, 0, -4]));
     }
+
+    #[test]
+    fn test_lookahead_read() {
+        let data = "anum,aword
+-5,True
+0,what
+4,False
+0.6,true
+5.,rah
+";
+        let df = read_string(data).unwrap();
+        assert_eq!(df["anum"], Column::from(vec![-5., 0., 4., 0.6, 5.]))
+    }
+
 }

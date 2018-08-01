@@ -14,7 +14,7 @@ use num::traits::AsPrimitive;
 use num::Num;
 use ordered_float::OrderedFloat;
 
-mod io;
+pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 type Result<T> = StdResult<T, failure::Error>;
