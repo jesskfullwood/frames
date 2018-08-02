@@ -2,7 +2,7 @@ use *;
 
 use std::fs::File;
 use std::io::Write;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, BufReader, BufWriter};
 use std::path::Path;
 
 enum CollectionBuilder {
@@ -57,6 +57,7 @@ impl CollectionBuilder {
 
 pub fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
     let f = File::open(path)?;
+    let f = BufReader::new(f);
     read_reader(f)
 }
 
@@ -123,9 +124,11 @@ impl ColType {
 impl DataFrame {
     pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
         let w = File::create(path)?;
+        let w = BufWriter::new(w);
         self.write_writer(w)
     }
 
+    // TODO add test for this
     pub fn write_writer(&self, mut w: impl Write) -> Result<()> {
         let ncols = self.num_cols();
         for (ix, name) in self.colnames().iter().enumerate() {
