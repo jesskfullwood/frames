@@ -123,10 +123,10 @@ impl DataFrame {
         Ok(newdf)
     }
 
-    pub fn itercols(&self) -> impl Iterator<Item=(&str, &Column)> {
+    pub fn itercols(&self) -> impl Iterator<Item = (&str, &Column)> {
         ColIter {
             df: &self,
-            cur_ix: 0
+            cur_ix: 0,
         }
     }
 }
@@ -134,7 +134,12 @@ impl DataFrame {
 impl Display for DataFrame {
     // TODO print some actual values
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
-        write!(f, "DataFrame - {} columns, {} rows\n", self.num_cols(), self.len())?;
+        write!(
+            f,
+            "DataFrame - {} columns, {} rows\n",
+            self.num_cols(),
+            self.len()
+        )?;
         for (name, c) in self.itercols() {
             write!(f, "    {:10}: {:?}\n", name, c.coltype())?;
         }
@@ -144,7 +149,7 @@ impl Display for DataFrame {
 
 struct ColIter<'a> {
     df: &'a DataFrame,
-    cur_ix: usize
+    cur_ix: usize,
 }
 
 impl<'a> Iterator for ColIter<'a> {
@@ -494,6 +499,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
         let mean = sigmafx / self.len() as f64;
         let variance = sigmafxsqr / self.len() as f64 - mean * mean;
         Describe {
+            len: self.len(),
             min,
             max,
             mean,
@@ -508,8 +514,10 @@ impl Collection<Float> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Describe {
     // TODO Quartiles?
+    pub len: usize,
     pub min: f64,
     pub max: f64,
     pub mean: f64,

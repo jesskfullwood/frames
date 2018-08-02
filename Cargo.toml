@@ -8,3 +8,6 @@ failure = "0.1.1"
 num = "0.2.0"
 new-ordered-float = "1.0.1"
 csv = "1.0.0"
+
+[dev-dependencies]
+tempdir = "0.3.7"

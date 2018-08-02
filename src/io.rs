@@ -1,6 +1,7 @@
 use *;
 
 use std::fs::File;
+use std::io::Write;
 use std::io::{Cursor, Read};
 use std::path::Path;
 
@@ -121,14 +122,77 @@ impl ColType {
 
 impl DataFrame {
     pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut writer = csv::Writer::from_path(path)?;
-        writer.write_record(self.colnames())?;
-        unimplemented!();
-        // let record = Vec::with_capacity(self.num_cols());
-        // let cols = self.order.map(|name| self.cols[name]).collect();
-        // let iters = cols.iter();
-        // Ok(())
+        let w = File::create(path)?;
+        self.write_writer(w)
     }
+
+    pub fn write_writer(&self, mut w: impl Write) -> Result<()> {
+        let ncols = self.num_cols();
+        for (ix, name) in self.colnames().iter().enumerate() {
+            write!(w, "{}", name)?;
+            if ix != ncols - 1 {
+                w.write(&[b','])?;
+            }
+        }
+        w.write(&[b'\n'])?;
+        let buffers: Vec<_> = self.itercols()
+            .map(|(_, c)| c.write_to_buffer(0, self.len()))
+            .collect();
+        let mut bufslices: Vec<_> = buffers
+            .iter()
+            .map(|(buf, ixs)| buffer_slices(&buf, &ixs))
+            .collect();
+        for _rix in 0..self.len() {
+            for (cix, col) in bufslices.iter_mut().enumerate() {
+                // unwrap guaranteed to succeed
+                w.write(col.next().unwrap())?;
+                if cix != ncols - 1 {
+                    w.write(&[b','])?;
+                }
+            }
+            w.write(&[b'\n'])?;
+        }
+        Ok(())
+    }
+}
+
+// TODO this could come from a trait
+const CHARS_PER_ELEM: usize = 10;
+
+impl<T: Display> Collection<T> {
+    fn write_to_buffer(&self, startix: usize, n_elems: usize) -> (Vec<u8>, Vec<usize>) {
+        // TODO this doesn't handle string escaping
+        // TODO this could easily? be multithreaded
+        let towrite = &self.data[startix..startix + n_elems];
+        let mut buffer = Vec::with_capacity(n_elems * CHARS_PER_ELEM);
+        let mut strixs = Vec::with_capacity(n_elems + 1);
+        strixs.push(0);
+        for elem in towrite {
+            // TODO is this zero-allocation?? Because it should to be
+            write!(buffer, "{}", elem).unwrap();
+            strixs.push(buffer.len())
+        }
+        (buffer, strixs)
+    }
+}
+
+impl Column {
+    fn write_to_buffer(&self, startix: usize, n_elems: usize) -> (Vec<u8>, Vec<usize>) {
+        use Column::*;
+        match self {
+            Int(c) => c.write_to_buffer(startix, n_elems),
+            Bool(c) => c.write_to_buffer(startix, n_elems),
+            Float(c) => c.write_to_buffer(startix, n_elems),
+            String(c) => c.write_to_buffer(startix, n_elems),
+        }
+    }
+}
+
+fn buffer_slices<'a>(buffer: &'a [u8], indices: &'a [usize]) -> impl Iterator<Item = &'a [u8]> {
+    (&indices[..indices.len() - 1])
+        .iter()
+        .zip(&indices[1..])
+        .map(move |(&start, &end)| &buffer[start..end])
 }
 
 #[cfg(test)]
