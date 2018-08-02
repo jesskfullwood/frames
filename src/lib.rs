@@ -122,6 +122,43 @@ impl DataFrame {
         }
         Ok(newdf)
     }
+
+    pub fn itercols(&self) -> impl Iterator<Item=(&str, &Column)> {
+        ColIter {
+            df: &self,
+            cur_ix: 0
+        }
+    }
+}
+
+impl Display for DataFrame {
+    // TODO print some actual values
+    fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
+        write!(f, "DataFrame - {} columns, {} rows\n", self.num_cols(), self.len())?;
+        for (name, c) in self.itercols() {
+            write!(f, "    {:10}: {:?}\n", name, c.coltype())?;
+        }
+        Ok(())
+    }
+}
+
+struct ColIter<'a> {
+    df: &'a DataFrame,
+    cur_ix: usize
+}
+
+impl<'a> Iterator for ColIter<'a> {
+    type Item = (&'a str, &'a Column);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur_ix < self.df.order.len() {
+            let name = &self.df.order[self.cur_ix];
+            let col = &self.df[name];
+            self.cur_ix += 1;
+            Some((name, col))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

@@ -124,7 +124,10 @@ impl DataFrame {
         let mut writer = csv::Writer::from_path(path)?;
         writer.write_record(self.colnames())?;
         unimplemented!();
-        Ok(())
+        // let record = Vec::with_capacity(self.num_cols());
+        // let cols = self.order.map(|name| self.cols[name]).collect();
+        // let iters = cols.iter();
+        // Ok(())
     }
 }
 
