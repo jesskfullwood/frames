@@ -190,6 +190,14 @@ pub trait ToFrame<T> {
 }
 
 macro_rules! impl_make_dataframe {
+    ($t1:ident $(,$t:ident)*) => {
+        make_dataframe_inner!($t1 $(,$t)*);
+        impl_make_dataframe!($($t),*);
+    };
+    () => {}
+}
+
+macro_rules! make_dataframe_inner {
     ($($t:ident),+)=> {
         impl< $($t,)+ > ToFrame<($($t,)+)> for DataFrame
             where $($t: Into<DataFrame>,)+ {
@@ -206,14 +214,7 @@ macro_rules! impl_make_dataframe {
     }
 }
 
-impl_make_dataframe!(A);
-impl_make_dataframe!(A, B);
-impl_make_dataframe!(A, B, C);
-impl_make_dataframe!(A, B, C, D);
-impl_make_dataframe!(A, B, C, D, E);
-impl_make_dataframe!(A, B, C, D, E, F);
-impl_make_dataframe!(A, B, C, D, E, F, G);
-impl_make_dataframe!(A, B, C, D, E, F, G, H);
+impl_make_dataframe!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
 
 struct ColIter<'a> {
     df: &'a DataFrame,
