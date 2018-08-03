@@ -234,8 +234,25 @@ mod test {
         assert_eq!(df["anum"], Column::from(vec![-5., 0., 4., 0.6, 5.]))
     }
 
-    // #[test]
-    // fn test_basic_write() {
-    //     let df = DataFrame::from(
-    // }
+    #[test]
+    fn test_basic_write() {
+        let words: Vec<String> = "this is some words".split(' ').map(String::from).collect();
+        let df = DataFrame::make((
+            ("c1", vec![1,2,3,4]),
+            ("c2", words),
+            ("c3", vec![1., 2., 3., 4.]),
+            ("c4", vec![true, false, false, true])
+        )).unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        df.write_writer(&mut buf).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        let expect =
+            "c1,c2,c3,c4
+1,this,1,true
+2,is,2,false
+3,some,3,false
+4,words,4,true
+";
+        assert_eq!(expect, out);
+    }
 }
