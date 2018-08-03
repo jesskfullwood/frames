@@ -115,9 +115,12 @@ impl DataFrame {
         Ok(())
     }
 
-    pub fn build_index(&self, key: &str) {
-        let col = self.cols.get(key).unwrap();
+    /// Add an index to the named column
+    /// If the column name is not recognized
+    pub fn build_index(&self, name: &str) -> Result<()> {
+        let col = self.cols.get(name).ok_or_else(|| format_err!("Column '{}' not found", name))?;
         col.build_index();
+        Ok(())
     }
 
     pub fn inner_join(&self, other: &DataFrame, on: &str) -> Result<DataFrame> {
@@ -182,7 +185,7 @@ where
     }
 }
 
-trait ToFrame<T> {
+pub trait ToFrame<T> {
     fn make(T) -> Result<DataFrame>;
 }
 
@@ -211,8 +214,6 @@ impl_make_dataframe!(A, B, C, D, E);
 impl_make_dataframe!(A, B, C, D, E, F);
 impl_make_dataframe!(A, B, C, D, E, F, G);
 impl_make_dataframe!(A, B, C, D, E, F, G, H);
-
-// impl<A, B> From<(A, B)> for DataFrame where A: Into<DataFrame>, B: Into<DataFrame>
 
 struct ColIter<'a> {
     df: &'a DataFrame,
