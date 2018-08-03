@@ -7,7 +7,7 @@ use tempdir::TempDir;
 use std::time;
 
 fn main() -> Result<()> {
-    let size = 50_000_000;
+    let size = 10_000_000;
     let mut df = DataFrame::new();
     df.setcol("ints", Column::from((0..size).collect::<Vec<_>>()))?;
     df.setcol(
@@ -29,8 +29,6 @@ fn main() -> Result<()> {
 
     let tmp_dir = TempDir::new("framesexample")?;
     let path = tmp_dir.path().join("test.csv");
-
-    let path = std::path::PathBuf::from("test.csv");
     println!("Writing CSV to {}", path.display());
     let startw = time::Instant::now();
     df.write_csv(&path)?;

@@ -5,7 +5,7 @@ extern crate num;
 extern crate ordered_float;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::Index;
@@ -72,9 +72,10 @@ impl DataFrame {
             .collect()
     }
 
-    pub fn build_index(&self, key: &str) {
-        let col = self.cols.get(key).unwrap();
-        col.build_index();
+    pub fn getcol(&self, key: &str) -> Result<&Column> {
+        self.cols
+            .get(key)
+            .ok_or_else(|| format_err!("Column {} not found", key))
     }
 
     pub fn setcol(&mut self, name: impl Into<String>, col: impl Into<Column>) -> Result<()> {
@@ -91,10 +92,32 @@ impl DataFrame {
         Ok(())
     }
 
-    pub fn getcol(&self, key: &str) -> Result<&Column> {
-        self.cols
-            .get(key)
-            .ok_or_else(|| format_err!("Column {} not found", key))
+    /// Add the columns of another dataframe to this frame
+    pub fn combine(&mut self, other: &DataFrame) -> Result<()> {
+        if self.len() > 0 && self.len() != other.len() {
+            bail!(
+                "Mismatched lengths (expected {}, got {})",
+                self.len(),
+                other.len()
+            )
+        }
+        {
+            let mut nameset: HashSet<&str> = self.colnames().iter().map(|s| *s).collect();
+            for name in other.colnames() {
+                if !nameset.insert(name) {
+                    bail!("Duplicate column name: {}", name);
+                }
+            }
+        }
+        for (name, col) in other.itercols() {
+            self.setcol(name, col.clone()).unwrap();
+        }
+        Ok(())
+    }
+
+    pub fn build_index(&self, key: &str) {
+        let col = self.cols.get(key).unwrap();
+        col.build_index();
     }
 
     pub fn inner_join(&self, other: &DataFrame, on: &str) -> Result<DataFrame> {
@@ -146,6 +169,50 @@ impl Display for DataFrame {
         Ok(())
     }
 }
+
+impl<S, C> From<(S, C)> for DataFrame
+where
+    S: Into<String>,
+    C: Into<Column>,
+{
+    fn from((name, col): (S, C)) -> DataFrame {
+        let mut df = DataFrame::new();
+        df.setcol(name.into(), col.into()).unwrap();
+        df
+    }
+}
+
+trait ToFrame<T> {
+    fn make(T) -> Result<DataFrame>;
+}
+
+macro_rules! impl_make_dataframe {
+    ($($t:ident),+)=> {
+        impl< $($t,)+ > ToFrame<($($t,)+)> for DataFrame
+            where $($t: Into<DataFrame>,)+ {
+            #[allow(non_snake_case)]
+            fn make(($($t,)+): ($($t,)+)) -> Result<DataFrame> {
+                let mut base = DataFrame::new();
+                $(
+                    let df = $t.into();
+                    base.combine(&df)?;
+                )+
+                Ok(base)
+            }
+        }
+    }
+}
+
+impl_make_dataframe!(A);
+impl_make_dataframe!(A, B);
+impl_make_dataframe!(A, B, C);
+impl_make_dataframe!(A, B, C, D);
+impl_make_dataframe!(A, B, C, D, E);
+impl_make_dataframe!(A, B, C, D, E, F);
+impl_make_dataframe!(A, B, C, D, E, F, G);
+impl_make_dataframe!(A, B, C, D, E, F, G, H);
+
+// impl<A, B> From<(A, B)> for DataFrame where A: Into<DataFrame>, B: Into<DataFrame>
 
 struct ColIter<'a> {
     df: &'a DataFrame,
@@ -543,11 +610,11 @@ mod test {
 
     #[test]
     fn test_basic_features() {
-        let mut df = DataFrame::new();
+        let mut df = DataFrame::from(("c1", vec![1, 2, 3, 4, 5]));
         df.setcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
         df.setcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
         let col3 = Column::from(Collection::new(vec![true, true, false, true, false]));
-        df.setcol("c3", col3);
+        df.setcol("c3", col3).unwrap();
         let words: Vec<_> = "a b c d e".split(' ').map(String::from).collect();
         df.setcol("c4", words).unwrap();
 
@@ -562,6 +629,22 @@ mod test {
         // index
         let c1 = &df["c1"];
         assert_eq!(c1.len(), 5);
+    }
+
+    #[test]
+    fn test_construct_from_vecs() {
+        let mut df = DataFrame::new();
+        let df1 =
+            DataFrame::make((("c1", vec![1, 2, 3, 4]), ("c2", vec![1., 2., 3., 4.]))).unwrap();
+        let words: Vec<String> = "this is some words".split(' ').map(String::from).collect();
+        let df2 = DataFrame::make((
+            ("c3", words),
+            ("c4", vec![1., 2., 3., 4.]),
+            ("c5", vec![true, false, false, true]),
+        )).unwrap();
+        df.combine(&df1).unwrap();
+        df.combine(&df2).unwrap();
+        assert_eq!(df.num_cols(), 5);
     }
 
     #[test]
