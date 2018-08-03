@@ -380,6 +380,7 @@ macro_rules! dynamic_map_impl {
 }
 
 dynamic_map_impl!(Int, Int);
+dynamic_map_impl!(Float, Float);
 dynamic_map_impl!(bool, Bool);
 dynamic_map_impl!(String, String);
 
@@ -687,9 +688,8 @@ mod test {
         let colsqr = col.map(|v: &Int| v * v);
         assert_eq!(colsqr, Column::from(vec![1, 4, 9, 16]));
 
-        // TODO make this work
-        // let col = Column::from(vec![1., 2., 3., 4.]);
-        // let colsqr = col.map(|v: &f64| v * v);
-        // assert_eq!(colsqr, Column::from(vec![1., 4., 9., 16.]));
+        let col = Column::from(vec![1., 2.5, 3., 4.]);
+        let colsqr = col.map(|v: &f64| v * v);
+        assert_eq!(colsqr, Column::from(vec![1., 6.25, 9., 16.]));
     }
 }
