@@ -4,6 +4,7 @@ extern crate csv;
 extern crate num;
 extern crate ordered_float;
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
@@ -14,8 +15,11 @@ use num::traits::AsPrimitive;
 use num::Num;
 use ordered_float::OrderedFloat;
 
-pub mod io;
+use collection::Collection;
+
+pub mod collection;
 // pub mod dframe;
+pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
@@ -78,6 +82,11 @@ impl DataFrame {
         self.cols
             .get(key)
             .ok_or_else(|| format_err!("Column {} not found", key))
+    }
+
+    pub fn get_collection<T: 'static>(&self, key: &str) -> Result<&Collection<T>> {
+        let col = self.getcol(key)?;
+        col.get_collection()
     }
 
     pub fn setcol(&mut self, name: impl Into<String>, col: impl Into<Column>) -> Result<()> {
@@ -337,6 +346,16 @@ impl Column {
         }
     }
 
+    fn get_collection<T: 'static>(&self) -> Result<&Collection<T>> {
+        use Column::*;
+        match self {
+            Bool(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
+            Int(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
+            Float(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
+            String(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
+        }
+    }
+
     pub fn mask<I>(&self, test: impl Fn(&I) -> Bool) -> Mask
     where
         Self: DynamicMap<I, Bool>,
@@ -419,174 +438,6 @@ impl_column_from_collection!(Int, Int);
 impl_column_from_collection!(String, String);
 impl_column_from_collection!(Bool, Bool);
 impl_column_from_collection!(Float, Float);
-
-#[derive(Clone)]
-pub struct Collection<T> {
-    data: Array<T>,
-    index: RefCell<Option<IndexMap<T>>>,
-}
-
-impl<T: PartialEq> PartialEq for Collection<T> {
-    // We don't care if the indexes are the same
-    fn eq(&self, other: &Self) -> Bool {
-        self.data == other.data
-    }
-}
-
-impl<T: Debug> Debug for Collection<T> {
-    fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
-        write!(
-            f,
-            "Collection {{ indexed: {}, vals: {:?} }}",
-            self.index.borrow().is_some(),
-            self.data
-        )
-    }
-}
-
-impl<T> Collection<T> {
-    fn new(data: Array<T>) -> Collection<T> {
-        Collection {
-            data,
-            index: RefCell::new(None),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn has_index(&self) -> Bool {
-        self.index.borrow().is_some()
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.data.iter()
-    }
-
-    fn map<R>(&self, test: impl Fn(&T) -> R) -> Collection<R> {
-        Collection::new(self.iter().map(test).collect())
-    }
-}
-
-impl<T: Clone> Collection<T> {
-    /// Create new Collection taking values from provided slice of indices
-    fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
-        let data = locs.iter().map(|&ix| self.data[ix].clone()).collect();
-        Collection::new(data)
-    }
-
-    pub fn apply_mask(&self, mask: &Mask) -> Self {
-        assert_eq!(self.len(), mask.len());
-        Collection::new(
-            self.iter()
-                .zip(mask.iter())
-                .filter_map(|(v, &b)| if b { Some(v.clone()) } else { None })
-                .collect(),
-        )
-    }
-}
-
-impl<T: Hash + Clone + Eq> Collection<T> {
-    pub fn build_index(&self) {
-        if self.has_index() {
-            return;
-        }
-        let mut index = IndexMap::new();
-        for (ix, d) in self.data.iter().enumerate() {
-            let entry = index.entry(d.clone()).or_insert(Vec::new());
-            entry.push(ix)
-        }
-        *self.index.borrow_mut() = Some(index);
-    }
-
-    fn inner_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<usize>) {
-        // TODO if "other" is already indexed, we can skip this step
-        self.build_index();
-
-        let borrow = self.index.borrow();
-        let colix = borrow.as_ref().unwrap();
-        let mut pair: Vec<(usize, usize)> = Vec::new();
-        for (rix, val) in other.iter().enumerate() {
-            if let Some(lixs) = colix.get(val) {
-                lixs.iter().for_each(|&lix| pair.push((lix, rix)))
-            }
-        }
-        pair.sort_unstable();
-        let mut left = Vec::with_capacity(pair.len());
-        let mut right = Vec::with_capacity(pair.len());
-        pair.iter().for_each(|&(l, r)| {
-            left.push(l);
-            right.push(r);
-        });
-        (left, right)
-    }
-}
-
-impl<T: Num + Copy> Collection<T> {
-    // TODO big risk of overflow for ints
-    // use some kind of bigint
-    pub fn sum(&self) -> T {
-        self.data.iter().fold(num::zero(), |acc, &v| acc + v)
-    }
-}
-
-impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
-    pub fn mean(&self) -> f64 {
-        let s: f64 = self.sum().as_();
-        s / self.len() as f64
-    }
-
-    pub fn variance(&self) -> f64 {
-        let mut sigmafxsqr: f64 = 0.;
-        let mut sigmafx: f64 = 0.;
-        self.data.iter().for_each(|n| {
-            let n: f64 = n.as_();
-            sigmafxsqr += n * n;
-            sigmafx += n;
-        });
-        let mean = sigmafx / self.len() as f64;
-        sigmafxsqr / self.len() as f64 - mean * mean
-    }
-
-    pub fn stdev(&self) -> f64 {
-        self.variance().sqrt()
-    }
-
-    pub fn describe(&self) -> Describe {
-        let mut min = std::f64::MAX;
-        let mut max = std::f64::MIN;
-        let mut sigmafxsqr: f64 = 0.;
-        let mut sigmafx: f64 = 0.;
-
-        self.data.iter().for_each(|n| {
-            let n: f64 = n.as_();
-            if n < min {
-                min = n;
-            }
-            if n > max {
-                max = n
-            }
-            sigmafxsqr += n * n;
-            sigmafx += n;
-        });
-        let mean = sigmafx / self.len() as f64;
-        let variance = sigmafxsqr / self.len() as f64 - mean * mean;
-        Describe {
-            len: self.len(),
-            min,
-            max,
-            mean,
-            stdev: variance.sqrt(),
-        }
-    }
-}
-
-impl Collection<Float> {
-    fn as_ordered(&self) -> &Collection<OrdFloat> {
-        unsafe { &*(self as *const Self as *const Collection<OrdFloat>) }
-    }
-}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Describe {
@@ -697,5 +548,16 @@ mod test {
         let col = Column::from(vec![1., 2.5, 3., 4.]);
         let colsqr = col.map(|v: &f64| v * v);
         assert_eq!(colsqr, Column::from(vec![1., 6.25, 9., 16.]));
+    }
+
+    #[test]
+    fn test_get_collection() {
+        let df = DataFrame::make((
+            ("c1", vec![1,2,3,4]),
+            ("c2", vec![true, false, true, false])
+        )).unwrap();
+        assert!(df.get_collection::<Int>("c1").is_ok());
+        assert!(df.get_collection::<Bool>("c1").is_err());
+        assert!(df.get_collection::<Bool>("c2").is_ok());
     }
 }

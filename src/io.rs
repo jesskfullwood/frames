@@ -183,7 +183,7 @@ macro_rules! impl_write_buffer {
                 (buffer, strixs)
             }
         }
-    }
+    };
 }
 
 impl_write_buffer!(Float, 6);
