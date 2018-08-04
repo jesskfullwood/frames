@@ -7,7 +7,7 @@ use std::path::Path;
 
 enum CollectionBuilder {
     String(Vec<String>),
-    Bool(Vec<bool>),
+    Bool(Vec<Bool>),
     Float(Vec<Float>),
     Int(Vec<Int>),
 }
@@ -16,9 +16,9 @@ impl CollectionBuilder {
     fn push(&mut self, record: &str) -> Result<()> {
         use self::CollectionBuilder as CB;
         let out = match self {
-            CB::Float(v) => v.push(record.parse::<f64>()?.into()),
+            CB::Float(v) => v.push(record.parse::<Float>()?.into()),
             CB::Int(v) => v.push(record.parse::<Int>()?),
-            CB::Bool(v) => v.push(record.parse::<bool>()?),
+            CB::Bool(v) => v.push(record.parse::<Bool>()?),
             CB::String(v) => v.push(record.into()),
         };
         Ok(out)
@@ -71,8 +71,7 @@ pub fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
     let headers = reader.headers()?.clone();
     let mut csviter = reader.records();
     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-    let mut columns: Vec<_> = row1
-        .iter()
+    let mut columns: Vec<_> = row1.iter()
         .map(|v| {
             let mut col = ColType::sniff(v).to_builder();
             col.push(v).unwrap();
@@ -102,9 +101,9 @@ impl ColType {
         use ColType as CT;
         if item.parse::<i64>().is_ok() {
             CT::Int
-        } else if item.parse::<f64>().is_ok() {
+        } else if item.parse::<Float>().is_ok() {
             CT::Float
-        } else if item.parse::<bool>().is_ok() {
+        } else if item.parse::<Bool>().is_ok() {
             CT::Bool
         } else {
             CT::String
@@ -129,7 +128,6 @@ impl DataFrame {
         self.write_writer(w)
     }
 
-    // TODO add test for this
     pub fn write_writer(&self, mut w: impl Write) -> Result<()> {
         let ncols = self.num_cols();
         for (ix, name) in self.colnames().iter().enumerate() {
@@ -139,8 +137,7 @@ impl DataFrame {
             }
         }
         w.write(&[b'\n'])?;
-        let buffers: Vec<_> = self
-            .itercols()
+        let buffers: Vec<_> = self.itercols()
             .map(|(_, c)| c.write_to_buffer(0, self.len()))
             .collect();
         let mut bufslices: Vec<_> = buffers
@@ -162,19 +159,61 @@ impl DataFrame {
 }
 
 // TODO this could come from a trait
-const CHARS_PER_ELEM: usize = 10;
 
-impl<T: Display> Collection<T> {
-    fn write_to_buffer(&self, startix: usize, n_elems: usize) -> (Vec<u8>, Vec<usize>) {
-        // TODO this doesn't handle string escaping
-        // TODO this could easily? be multithreaded
-        let towrite = &self.data[startix..startix + n_elems];
-        let mut buffer = Vec::with_capacity(n_elems * CHARS_PER_ELEM);
-        let mut strixs = Vec::with_capacity(n_elems + 1);
+trait WriteBuffer: Sized {
+    const CHARS_PER_ELEM_HINT: usize;
+    fn write_to_buffer(slice: &[Self]) -> (Vec<u8>, Vec<usize>);
+}
+
+// In the absence of specialization, we use this macro
+macro_rules! impl_write_buffer {
+    ($t:ident, $size_hint:expr) => {
+        impl WriteBuffer for $t {
+            const CHARS_PER_ELEM_HINT: usize = $size_hint;
+            fn write_to_buffer(slice: &[$t]) -> (Vec<u8>, Vec<usize>) {
+                // TODO this could easily? be multithreaded
+                let mut buffer = Vec::with_capacity(slice.len() * Self::CHARS_PER_ELEM_HINT);
+                let mut strixs = Vec::with_capacity(slice.len() + 1);
+                strixs.push(0);
+                for elem in slice {
+                    // TODO is this zero-allocation?? Because it should to be
+                    write!(buffer, "{}", elem).unwrap();
+                    strixs.push(buffer.len())
+                }
+                (buffer, strixs)
+            }
+        }
+    }
+}
+
+impl_write_buffer!(Float, 6);
+impl_write_buffer!(Int, 6);
+impl_write_buffer!(Bool, 5);
+
+impl WriteBuffer for String {
+    const CHARS_PER_ELEM_HINT: usize = 10;
+
+    fn write_to_buffer(slice: &[String]) -> (Vec<u8>, Vec<usize>) {
+        // TODO multithreading
+        let mut buffer = Vec::with_capacity(slice.len() * Self::CHARS_PER_ELEM_HINT);
+        let mut strixs = Vec::with_capacity(slice.len() + 1);
         strixs.push(0);
-        for elem in towrite {
-            // TODO is this zero-allocation?? Because it should to be
-            write!(buffer, "{}", elem).unwrap();
+        for elem in slice {
+            // For convenience we quote everything
+            buffer.push(b'"');
+            for byte in elem.as_bytes() {
+                match byte {
+                    b'"' => {
+                        // CSV spec says to do this
+                        buffer.push(b'"');
+                        buffer.push(b'"');
+                    }
+                    &c => {
+                        buffer.push(c);
+                    }
+                }
+            }
+            buffer.push(b'"');
             strixs.push(buffer.len())
         }
         (buffer, strixs)
@@ -183,12 +222,14 @@ impl<T: Display> Collection<T> {
 
 impl Column {
     fn write_to_buffer(&self, startix: usize, n_elems: usize) -> (Vec<u8>, Vec<usize>) {
+        use std::string::String;
         use Column::*;
+        use {Bool, Float, Int};
         match self {
-            Int(c) => c.write_to_buffer(startix, n_elems),
-            Bool(c) => c.write_to_buffer(startix, n_elems),
-            Float(c) => c.write_to_buffer(startix, n_elems),
-            String(c) => c.write_to_buffer(startix, n_elems),
+            Int(c) => Int::write_to_buffer(&c.data[startix..startix + n_elems]),
+            Float(c) => Float::write_to_buffer(&c.data[startix..startix + n_elems]),
+            Bool(c) => Bool::write_to_buffer(&c.data[startix..startix + n_elems]),
+            String(c) => String::write_to_buffer(&c.data[startix..startix + n_elems]),
         }
     }
 }
@@ -238,21 +279,45 @@ mod test {
     fn test_basic_write() {
         let words: Vec<String> = "this is some words".split(' ').map(String::from).collect();
         let df = DataFrame::make((
-            ("c1", vec![1,2,3,4]),
+            ("c1", vec![1, 2, 3, 4]),
             ("c2", words),
-            ("c3", vec![1., 2., 3., 4.]),
-            ("c4", vec![true, false, false, true])
+            ("c3", vec![1., 2., 3., 4.1]),
+            ("c4", vec![true, false, false, true]),
         )).unwrap();
         let mut buf: Vec<u8> = Vec::new();
         df.write_writer(&mut buf).unwrap();
         let out = String::from_utf8(buf).unwrap();
-        let expect =
-            "c1,c2,c3,c4
-1,this,1,true
-2,is,2,false
-3,some,3,false
-4,words,4,true
-";
+        let expect = r#"c1,c2,c3,c4
+1,"this",1,true
+2,"is",2,false
+3,"some",3,false
+4,"words",4.1,true
+"#;
         assert_eq!(expect, out);
+
+        let r = Cursor::new(out);
+        let df2 = read_reader(r).unwrap();
+        assert_eq!(df, df2);
     }
+}
+
+#[test]
+fn test_quoted_write() {
+    let df = DataFrame::make(((
+        "c1",
+        vec![String::from(r#"thi,"',s""',"#), String::from("sword")],
+    ),))
+        .unwrap();
+    let mut buf: Vec<u8> = Vec::new();
+    df.write_writer(&mut buf).unwrap();
+    let out = String::from_utf8(buf).unwrap();
+    let expect = r#"c1
+"thi,""',s""""',"
+"sword"
+"#;
+    assert_eq!(expect, out);
+
+    let r = Cursor::new(out);
+    let df2 = read_reader(r).unwrap();
+    assert_eq!(df, df2);
 }

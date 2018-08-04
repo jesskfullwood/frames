@@ -15,19 +15,21 @@ use num::Num;
 use ordered_float::OrderedFloat;
 
 pub mod io;
+// pub mod dframe;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
-type Array<T> = Vec<T>;
-type Float = f64;
-type OrdFloat = OrderedFloat<f64>;
-type Int = i64;
+pub(crate) type Array<T> = Vec<T>;
+pub(crate) type Float = f64;
+pub(crate) type Bool = bool;
+pub(crate) type OrdFloat = OrderedFloat<f64>;
+pub(crate) type Int = i64;
 
 // TODO "TypedFrame" with a custom-derive? Using an HList?
 // TODO Pretty-printing of DataFrame
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DataFrame {
     cols: HashMap<String, Column>,
     order: Vec<String>,
@@ -118,7 +120,9 @@ impl DataFrame {
     /// Add an index to the named column
     /// If the column name is not recognized
     pub fn build_index(&self, name: &str) -> Result<()> {
-        let col = self.cols.get(name).ok_or_else(|| format_err!("Column '{}' not found", name))?;
+        let col = self.cols
+            .get(name)
+            .ok_or_else(|| format_err!("Column '{}' not found", name))?;
         col.build_index();
         Ok(())
     }
@@ -200,7 +204,7 @@ macro_rules! impl_make_dataframe {
 macro_rules! make_dataframe_inner {
     ($($t:ident),+)=> {
         impl< $($t,)+ > ToFrame<($($t,)+)> for DataFrame
-            where $($t: Into<DataFrame>,)+ {
+            where $($t: Into<DataFrame>),+ {
             #[allow(non_snake_case)]
             fn make(($($t,)+): ($($t,)+)) -> Result<DataFrame> {
                 let mut base = DataFrame::new();
@@ -246,7 +250,7 @@ pub enum ColType {
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Column {
-    Bool(Collection<bool>),
+    Bool(Collection<Bool>),
     Int(Collection<Int>),
     String(Collection<String>),
     Float(Collection<Float>),
@@ -269,7 +273,7 @@ macro_rules! column_apply {
 
 impl Column {
     column_apply!(len, usize => Collection::len);
-    column_apply!(has_index, bool => Collection::has_index);
+    column_apply!(has_index, Bool => Collection::has_index);
     // column_apply!(build_index, () => Collection::build_index);
     // column_apply_pair!(inner_join_locs, (Vec<usize>, Vec<usize>) => Collection::inner_join_locs);
 
@@ -333,9 +337,9 @@ impl Column {
         }
     }
 
-    pub fn mask<I>(&self, test: impl Fn(&I) -> bool) -> Mask
+    pub fn mask<I>(&self, test: impl Fn(&I) -> Bool) -> Mask
     where
-        Self: DynamicMap<I, bool>,
+        Self: DynamicMap<I, Bool>,
     {
         // Example use:
         // let mask = df["thing"].mask(|v| v > 10)
@@ -383,7 +387,7 @@ macro_rules! dynamic_map_impl {
 
 dynamic_map_impl!(Int, Int);
 dynamic_map_impl!(Float, Float);
-dynamic_map_impl!(bool, Bool);
+dynamic_map_impl!(Bool, Bool);
 dynamic_map_impl!(String, String);
 
 macro_rules! impl_column_from_array {
@@ -398,7 +402,7 @@ macro_rules! impl_column_from_array {
 
 impl_column_from_array!(Int, Int);
 impl_column_from_array!(String, String);
-impl_column_from_array!(Bool, bool);
+impl_column_from_array!(Bool, Bool);
 impl_column_from_array!(Float, Float);
 
 macro_rules! impl_column_from_collection {
@@ -413,7 +417,7 @@ macro_rules! impl_column_from_collection {
 
 impl_column_from_collection!(Int, Int);
 impl_column_from_collection!(String, String);
-impl_column_from_collection!(Bool, bool);
+impl_column_from_collection!(Bool, Bool);
 impl_column_from_collection!(Float, Float);
 
 #[derive(Clone)]
@@ -424,7 +428,7 @@ pub struct Collection<T> {
 
 impl<T: PartialEq> PartialEq for Collection<T> {
     // We don't care if the indexes are the same
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, other: &Self) -> Bool {
         self.data == other.data
     }
 }
@@ -452,7 +456,7 @@ impl<T> Collection<T> {
         self.data.len()
     }
 
-    fn has_index(&self) -> bool {
+    fn has_index(&self) -> Bool {
         self.index.borrow().is_some()
     }
 
@@ -594,15 +598,15 @@ pub struct Describe {
     pub stdev: f64,
 }
 
-pub struct Mask(Collection<bool>);
+pub struct Mask(Collection<Bool>);
 
-// TODO mask::from(vec<bool>)
+// TODO mask::from(vec<Bool>)
 impl Mask {
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &bool> {
+    pub fn iter(&self) -> impl Iterator<Item = &Bool> {
         self.0.iter()
     }
 }
