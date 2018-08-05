@@ -21,6 +21,7 @@ pub mod collection;
 // pub mod dframe;
 pub mod frame;
 pub mod io;
+// pub mod wrap;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;

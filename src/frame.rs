@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 // The HList implementation is a modified version of the one found in the `frunk` crate.
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
-// for details.
+// for details. (In fact, that implementation is much more complete)
 
 pub trait HList: Sized {
     const LEN: usize;
@@ -43,12 +43,15 @@ impl<H: Token, T: HList> HList for HCons<H, T> {
 
 impl<Head: Token, Tail> HCons<Head, Tail> {
     #[inline(always)]
-    pub fn remove<T: Token, Index>(self) -> (Vec<T::Output>, <Self as Fetcher<T, Index>>::Remainder)
+    pub fn extract<T: Token, Index>(
+        self,
+    ) -> (Vec<T::Output>, <Self as Fetcher<T, Index>>::Remainder)
     where
         Self: Fetcher<T, Index>,
     {
-        Fetcher::remove(self)
+        Fetcher::extract(self)
     }
+
     #[inline(always)]
     pub fn fetch<T: Token, Index>(&self) -> &[T::Output]
     where
@@ -56,18 +59,53 @@ impl<Head: Token, Tail> HCons<Head, Tail> {
     {
         Fetcher::fetch(self)
     }
+
+    #[inline(always)]
+    pub fn pop(self) -> (Vec<Head::Output>, Tail) {
+        (self.head, self.tail)
+    }
+
+    fn concat<J: Concat<Self>>(self, other: J) -> J::Combined {
+        other.concat_front(self)
+    }
+}
+
+pub trait Concat<J> {
+    type Combined;
+    fn concat_front(self, other: J) -> Self::Combined;
+}
+
+impl<J> Concat<J> for HNil {
+    type Combined = J;
+    fn concat_front(self, other: J) -> Self::Combined {
+        other
+    }
+}
+
+impl<Head, Tail, J> Concat<J> for HCons<Head, Tail>
+where
+    Head: Token,
+    Tail: Concat<J>,
+{
+    type Combined = HCons<Head, <Tail as Concat<J>>::Combined>;
+    fn concat_front(self, other: J) -> Self::Combined {
+        HCons {
+            head: self.head,
+            tail: self.tail.concat_front(other),
+        }
+    }
 }
 
 pub trait Fetcher<Target: Token, Index> {
     type Remainder;
-    fn remove(self) -> (Vec<Target::Output>, Self::Remainder);
+    fn extract(self) -> (Vec<Target::Output>, Self::Remainder);
     fn fetch(&self) -> &[Target::Output];
 }
 
 impl<Head: Token, Tail> Fetcher<Head, Here> for HCons<Head, Tail> {
     type Remainder = Tail;
 
-    fn remove(self) -> (Vec<Head::Output>, Self::Remainder) {
+    fn extract(self) -> (Vec<Head::Output>, Self::Remainder) {
         (self.head, self.tail)
     }
     fn fetch(&self) -> &[Head::Output] {
@@ -75,18 +113,19 @@ impl<Head: Token, Tail> Fetcher<Head, Here> for HCons<Head, Tail> {
     }
 }
 
-impl<Head: Token, Tail, FromTail: Token, TailIndex> Fetcher<FromTail, There<TailIndex>>
-    for HCons<Head, Tail>
+impl<Head, Tail, FromTail, TailIndex> Fetcher<FromTail, There<TailIndex>> for HCons<Head, Tail>
 where
+    Head: Token,
+    FromTail: Token,
     Tail: Fetcher<FromTail, TailIndex>,
 {
     type Remainder = HCons<Head, <Tail as Fetcher<FromTail, TailIndex>>::Remainder>;
 
-    fn remove(self) -> (Vec<FromTail::Output>, Self::Remainder) {
+    fn extract(self) -> (Vec<FromTail::Output>, Self::Remainder) {
         let (target, tail_remainder): (
             Vec<FromTail::Output>,
             <Tail as Fetcher<FromTail, TailIndex>>::Remainder,
-        ) = <Tail as Fetcher<FromTail, TailIndex>>::remove(self.tail);
+        ) = <Tail as Fetcher<FromTail, TailIndex>>::extract(self.tail);
         (
             target,
             HCons {
@@ -143,18 +182,18 @@ fn test_basic_frame() {
         let f = h.fetch::<FloatT, _>();
         assert_eq!(f, &[1.23]);
     }
-    let (v, h) = h.remove::<IntT, _>();
+    let (v, h) = h.extract::<IntT, _>();
     assert_eq!(v, &[10]);
-    let (v, h) = h.remove::<StringT, _>();
+    let (v, h) = h.pop();
     assert_eq!(v, &[String::from("Hello")]);
-    let (v, HNil) = h.remove::<FloatT, _>();
+    let (v, HNil) = h.extract::<FloatT, _>();
     assert_eq!(v, &[1.23]);
 }
 
 #[test]
-fn test_join() {
-    // let h: Frame3<IntT, FloatT, StringT> = HNil.addcol(10i64)
-    //     .addcol(1.23f64)
-    //     .addcol(String::from("Hello"));
-
+fn test_concat() {
+    use self::tokens::*;
+    let h1: Frame2<IntT, FloatT> = HNil.addcol(vec![10i64]).addcol(vec![1.23f64]);
+    let h2: Frame1<StringT> = HNil.addcol(vec![String::from("Hello")]);
+    let _h3: Frame3<IntT, FloatT, StringT> = h1.concat(h2);
 }
