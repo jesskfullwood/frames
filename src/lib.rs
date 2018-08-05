@@ -19,6 +19,7 @@ use collection::Collection;
 
 pub mod collection;
 // pub mod dframe;
+pub mod frame;
 pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
@@ -349,10 +350,18 @@ impl Column {
     fn get_collection<T: 'static>(&self) -> Result<&Collection<T>> {
         use Column::*;
         match self {
-            Bool(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
-            Int(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
-            Float(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
-            String(c) => (c as &Any).downcast_ref::<Collection<T>>().ok_or_else(|| format_err!("wrong type")),
+            Bool(c) => (c as &Any)
+                .downcast_ref::<Collection<T>>()
+                .ok_or_else(|| format_err!("wrong type")),
+            Int(c) => (c as &Any)
+                .downcast_ref::<Collection<T>>()
+                .ok_or_else(|| format_err!("wrong type")),
+            Float(c) => (c as &Any)
+                .downcast_ref::<Collection<T>>()
+                .ok_or_else(|| format_err!("wrong type")),
+            String(c) => (c as &Any)
+                .downcast_ref::<Collection<T>>()
+                .ok_or_else(|| format_err!("wrong type")),
         }
     }
 
@@ -553,8 +562,8 @@ mod test {
     #[test]
     fn test_get_collection() {
         let df = DataFrame::make((
-            ("c1", vec![1,2,3,4]),
-            ("c2", vec![true, false, true, false])
+            ("c1", vec![1, 2, 3, 4]),
+            ("c2", vec![true, false, true, false]),
         )).unwrap();
         assert!(df.get_collection::<Int>("c1").is_ok());
         assert!(df.get_collection::<Bool>("c1").is_err());
