@@ -55,6 +55,17 @@ impl<T> Collection<T> {
     }
 }
 
+impl<A, T> PartialEq<A> for Collection<T>
+where
+    A: AsRef<[T]>,
+    T: PartialEq,
+{
+    fn eq(&self, other: &A) -> bool {
+        let slice: &[T] = other.as_ref();
+        self.iter().zip(slice.iter()).all(|(l, r)| l == r)
+    }
+}
+
 impl<T: Clone> Collection<T> {
     /// Create new Collection taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Collection<T> {

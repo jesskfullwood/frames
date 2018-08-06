@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use Result;
+use {Collection, Result};
 
 // The HList implementation is a modified version of the one found in the `frunk` crate.
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
@@ -8,11 +8,11 @@ use Result;
 
 pub struct Frame<H: HList> {
     hlist: H,
-    pub len: usize,
+    len: usize,
 }
 
 impl Frame<HNil> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Frame {
             hlist: HNil,
             len: 0,
@@ -21,19 +21,29 @@ impl Frame<HNil> {
 }
 
 impl<H: HList> Frame<H> {
-    pub fn addcol<T: Token>(self, h: Vec<T::Output>) -> Result<Frame<HCons<T, H>>> {
-        if !H::IS_ROOT && h.len() != self.len {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    // TODO: alternative would be to explicitly pass the token
+    pub fn addcol<T, I>(self, coll: I) -> Result<Frame<HCons<T, H>>>
+    where
+        T: Token,
+        I: Into<Collection<T::Output>>,
+    {
+        let coll = coll.into();
+        if !H::IS_ROOT && coll.len() != self.len {
             bail!("Mismatched length")
         } else {
             Ok(Frame {
-                len: h.len(),
-                hlist: self.hlist.addcol(h),
+                len: coll.len(),
+                hlist: self.hlist.addcol(coll),
             })
         }
     }
 
     #[inline(always)]
-    pub fn get<T, Index>(&self) -> &[T::Output]
+    pub fn get<T, Index>(&self) -> &Collection<T::Output>
     where
         T: Token,
         H: Selector<T, Index>,
@@ -42,7 +52,12 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline(always)]
-    pub fn extract<T, Index>(self) -> (Vec<T::Output>, Frame<<H as Extractor<T, Index>>::Remainder>)
+    pub fn extract<T, Index>(
+        self,
+    ) -> (
+        Collection<T::Output>,
+        Frame<<H as Extractor<T, Index>>::Remainder>,
+    )
     where
         T: Token,
         H: Extractor<T, Index>,
@@ -57,8 +72,27 @@ impl<H: HList> Frame<H> {
         )
     }
 
-    pub fn concat<J: Concat<Self>>(self, other: J) -> J::Combined {
+    pub fn concat<C: HList + Concat<H>>(self, other: Frame<C>) -> Result<Frame<C::Combined>> {
         other.concat_front(self)
+    }
+
+    fn concat_front<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
+    where
+        H: Concat<C>,
+    {
+        let len = if H::IS_ROOT {
+            other.len()
+        } else if C::IS_ROOT {
+            self.len()
+        } else if self.len() != other.len() {
+            bail!("Mismatched lengths ({} and {})", other.len(), self.len())
+        } else {
+            self.len()
+        };
+        Ok(Frame {
+            len,
+            hlist: self.hlist.concat_front(other.hlist),
+        })
     }
 
     pub fn num_cols(&self) -> usize {
@@ -68,7 +102,7 @@ impl<H: HList> Frame<H> {
 
 impl<Head: Token, Tail: HList> Frame<HCons<Head, Tail>> {
     #[inline(always)]
-    pub fn pop(self) -> (Vec<Head::Output>, Frame<Tail>) {
+    pub fn pop(self) -> (Collection<Head::Output>, Frame<Tail>) {
         let tail = Frame {
             hlist: self.hlist.tail,
             len: self.len,
@@ -86,9 +120,9 @@ pub trait HList: Sized {
         Self::SIZE
     }
 
-    fn addcol<T: Token>(self, head: Vec<T::Output>) -> HCons<T, Self> {
+    fn addcol<T: Token>(self, head: impl Into<Collection<T::Output>>) -> HCons<T, Self> {
         HCons {
-            head: head,
+            head: head.into(),
             tail: self,
         }
     }
@@ -99,16 +133,16 @@ pub trait Token {
 }
 
 #[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-struct HNil;
+pub struct HNil;
 
 impl HList for HNil {
     const SIZE: usize = 0;
     const IS_ROOT: bool = true;
 }
 
+#[derive(PartialEq, Debug, Clone)]
 pub struct HCons<H: Token, T> {
-    pub head: Vec<H::Output>,
+    pub head: Collection<H::Output>,
     pub tail: T,
 }
 
@@ -117,54 +151,25 @@ impl<H: Token, T: HList> HList for HCons<H, T> {
     const IS_ROOT: bool = false;
 }
 
-impl<Head: Token, Tail> HCons<Head, Tail> {
-    #[inline(always)]
-    pub fn extract<T: Token, Index>(
-        self,
-    ) -> (Vec<T::Output>, <Self as Extractor<T, Index>>::Remainder)
-    where
-        Self: Extractor<T, Index>,
-    {
-        Extractor::extract(self)
-    }
-
-    #[inline(always)]
-    pub fn get<T: Token, Index>(&self) -> &[T::Output]
-    where
-        Self: Selector<T, Index>,
-    {
-        Selector::get(self)
-    }
-
-    #[inline(always)]
-    pub fn pop(self) -> (Vec<Head::Output>, Tail) {
-        (self.head, self.tail)
-    }
-
-    fn concat<J: Concat<Self>>(self, other: J) -> J::Combined {
-        other.concat_front(self)
-    }
+pub trait Concat<C> {
+    type Combined: HList;
+    fn concat_front(self, other: C) -> Self::Combined;
 }
 
-pub trait Concat<J> {
-    type Combined;
-    fn concat_front(self, other: J) -> Self::Combined;
-}
-
-impl<J> Concat<J> for HNil {
-    type Combined = J;
-    fn concat_front(self, other: J) -> Self::Combined {
+impl<C: HList> Concat<C> for HNil {
+    type Combined = C;
+    fn concat_front(self, other: C) -> Self::Combined {
         other
     }
 }
 
-impl<Head, Tail, J> Concat<J> for HCons<Head, Tail>
+impl<Head, Tail, C> Concat<C> for HCons<Head, Tail>
 where
     Head: Token,
-    Tail: Concat<J>,
+    Tail: Concat<C>,
 {
-    type Combined = HCons<Head, <Tail as Concat<J>>::Combined>;
-    fn concat_front(self, other: J) -> Self::Combined {
+    type Combined = HCons<Head, <Tail as Concat<C>>::Combined>;
+    fn concat_front(self, other: C) -> Self::Combined {
         HCons {
             head: self.head,
             tail: self.tail.concat_front(other),
@@ -173,11 +178,11 @@ where
 }
 
 pub trait Selector<S: Token, I> {
-    fn get(&self) -> &[S::Output];
+    fn get(&self) -> &Collection<S::Output>;
 }
 
 impl<T: Token, Tail> Selector<T, Here> for HCons<T, Tail> {
-    fn get(&self) -> &[T::Output] {
+    fn get(&self) -> &Collection<T::Output> {
         &self.head
     }
 }
@@ -188,20 +193,20 @@ where
     FromTail: Token,
     Tail: Selector<FromTail, TailIndex>,
 {
-    fn get(&self) -> &[FromTail::Output] {
+    fn get(&self) -> &Collection<FromTail::Output> {
         self.tail.get()
     }
 }
 
 pub trait Extractor<Target: Token, Index> {
     type Remainder: HList;
-    fn extract(self) -> (Vec<Target::Output>, Self::Remainder);
+    fn extract(self) -> (Collection<Target::Output>, Self::Remainder);
 }
 
 impl<Head: Token, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
     type Remainder = Tail;
 
-    fn extract(self) -> (Vec<Head::Output>, Self::Remainder) {
+    fn extract(self) -> (Collection<Head::Output>, Self::Remainder) {
         (self.head, self.tail)
     }
 }
@@ -214,9 +219,9 @@ where
 {
     type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
 
-    fn extract(self) -> (Vec<FromTail::Output>, Self::Remainder) {
+    fn extract(self) -> (Collection<FromTail::Output>, Self::Remainder) {
         let (target, tail_remainder): (
-            Vec<FromTail::Output>,
+            Collection<FromTail::Output>,
             <Tail as Extractor<FromTail, TailIndex>>::Remainder,
         ) = <Tail as Extractor<FromTail, TailIndex>>::extract(self.tail);
         (
@@ -237,6 +242,7 @@ pub struct There<T> {
     _marker: PhantomData<T>,
 }
 
+#[macro_export]
 macro_rules! coldef {
     ($name:ident, $typ:ty) => {
         struct $name;
@@ -246,10 +252,13 @@ macro_rules! coldef {
     };
 }
 
-type Frame0 = Frame<HNil>;
-type Frame1<T1> = HCons<T1, HNil>;
-type Frame2<T1, T2> = HCons<T2, Frame1<T1>>;
-type Frame3<T1, T2, T3> = HCons<T3, Frame2<T1, T2>>;
+type List1<T1> = HCons<T1, HNil>;
+type List2<T1, T2> = HCons<T2, List1<T1>>;
+type List3<T1, T2, T3> = HCons<T3, List2<T1, T2>>;
+pub type Frame0 = Frame<HNil>;
+pub type Frame1<T1> = Frame<List1<T1>>;
+pub type Frame2<T1, T2> = Frame<List2<T1, T2>>;
+pub type Frame3<T1, T2, T3> = Frame<List3<T1, T2, T3>>;
 
 #[cfg(test)]
 mod tests {
@@ -264,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_basic_frame() -> Result<()> {
-        let f: Frame<Data3> = Frame::new()
+        let f: Data3 = Frame::new()
             .addcol(vec![10i64])?
             .addcol(vec![1.23f64])?
             .addcol(vec![String::from("Hello")])?;
@@ -272,7 +281,7 @@ mod tests {
         assert_eq!(f.len, 1);
         {
             let f = f.get::<FloatT, _>();
-            assert_eq!(f, &[1.23]);
+            assert_eq!(f, &[1.23f64])
         }
         let (v, f) = f.extract::<IntT, _>();
         assert_eq!(v, &[10]);
@@ -284,29 +293,49 @@ mod tests {
     }
 
     #[test]
-    fn test_double_insert() {
+    fn test_double_insert() -> Result<()> {
         type First = There<Here>;
-        let h: Frame2<IntT, IntT> = HNil.addcol(vec![10]).addcol(vec![1]);
-        let (v, _) = h.extract::<IntT, First>();
+        let f: Frame2<IntT, IntT> = Frame::new().addcol(vec![10])?.addcol(vec![1])?;
+        let (v, _) = f.extract::<IntT, First>();
         assert_eq!(v, &[10]);
+        Ok(())
     }
 
     #[test]
-    fn test_add_col() {
-        let h: Frame3<IntT, FloatT, StringT> = HNil
-            .addcol(vec![10i64])
-            .addcol(vec![1.23f64])
-            .addcol(vec![String::from("Hello")]);
+    fn test_add_coldef() -> Result<()> {
+        let f: Data3 = Frame::new()
+            .addcol(vec![10i64])?
+            .addcol(vec![1.23f64])?
+            .addcol(vec![String::from("Hello")])?;
         coldef!(Added, i64);
-        let h = h.addcol::<Added>(vec![123]);
-        let v = h.get::<Added, _>();
+        let f = f.addcol::<Added, _>(vec![123])?;
+        let v = f.get::<Added, _>();
         assert_eq!(v, &[123]);
+        Ok(())
     }
 
     #[test]
-    fn test_concat() {
-        let h1: Frame2<IntT, FloatT> = HNil.addcol(vec![10i64]).addcol(vec![1.23f64]);
-        let h2: Frame1<StringT> = HNil.addcol(vec![String::from("Hello")]);
-        let _h3: Frame3<IntT, FloatT, StringT> = h1.concat(h2);
+    fn test_concat() -> Result<()> {
+        {
+            let f1 = Frame::new();
+            let f2 = Frame::new();
+            let f3: Frame0 = f1.concat(f2)?;
+        }
+
+        {
+            let f1: Frame2<IntT, FloatT> = Frame::new().addcol(vec![10i64])?.addcol(vec![1.23f64])?;
+            let f2: Frame1<StringT> = Frame::new().addcol(vec![String::from("Hello")])?;
+            let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
+        }
+
+        {
+            let f1 = Frame::new();
+            let f2 = Frame::new().addcol::<IntT, _>(vec![1, 2, 3])?;
+            let f3 = Frame::new().addcol::<FloatT, _>(vec![1., 2.])?;
+            let f4: Frame1<_> = f1.concat(f2)?;
+            assert!(f4.concat(f3).is_err()) // mismatched types
+        }
+
+        Ok(())
     }
 }
