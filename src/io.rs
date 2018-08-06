@@ -227,10 +227,10 @@ impl Column {
         use Column::*;
         use {Bool, Float, Int};
         match self {
-            Int(c) => Int::write_to_buffer(&c.data[startix..startix + n_elems]),
-            Float(c) => Float::write_to_buffer(&c.data[startix..startix + n_elems]),
-            Bool(c) => Bool::write_to_buffer(&c.data[startix..startix + n_elems]),
-            String(c) => String::write_to_buffer(&c.data[startix..startix + n_elems]),
+            Int(c) => Int::write_to_buffer(&c.data()[startix..startix + n_elems]),
+            Float(c) => Float::write_to_buffer(&c.data()[startix..startix + n_elems]),
+            Bool(c) => Bool::write_to_buffer(&c.data()[startix..startix + n_elems]),
+            String(c) => String::write_to_buffer(&c.data()[startix..startix + n_elems]),
         }
     }
 }

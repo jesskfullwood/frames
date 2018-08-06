@@ -1,7 +1,23 @@
 use *;
+use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct Collection<T> {
+pub struct Collection<T>(Arc<CollectionInner<T>>);
+
+impl<T> Collection<T> {
+    #[inline]
+    pub(crate) fn data(&self) -> &Array<T> {
+        &self.0.data
+    }
+
+    #[inline]
+    fn index(&self) -> &RefCell<Option<IndexMap<T>>> {
+        &self.0.index
+    }
+}
+
+#[derive(Clone)]
+struct CollectionInner<T> {
     pub data: Array<T>,
     index: RefCell<Option<IndexMap<T>>>,
 }
@@ -15,7 +31,7 @@ impl<T> From<Array<T>> for Collection<T> {
 impl<T: PartialEq> PartialEq for Collection<T> {
     // We don't care if the indexes are the same
     fn eq(&self, other: &Self) -> Bool {
-        self.data == other.data
+        self.data() == other.data()
     }
 }
 
@@ -24,30 +40,30 @@ impl<T: Debug> Debug for Collection<T> {
         write!(
             f,
             "Collection {{ indexed: {}, vals: {:?} }}",
-            self.index.borrow().is_some(),
-            self.data
+            self.index().borrow().is_some(),
+            self.data()
         )
     }
 }
 
 impl<T> Collection<T> {
     pub fn new(data: Array<T>) -> Collection<T> {
-        Collection {
+        Collection(Arc::new(CollectionInner {
             data,
             index: RefCell::new(None),
-        }
+        }))
     }
 
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.data().len()
     }
 
     pub fn has_index(&self) -> Bool {
-        self.index.borrow().is_some()
+        self.index().borrow().is_some()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.data.iter()
+        self.data().iter()
     }
 
     pub fn map<R>(&self, test: impl Fn(&T) -> R) -> Collection<R> {
@@ -75,7 +91,8 @@ where
 impl<T: Clone> Collection<T> {
     /// Create new Collection taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
-        let data = locs.iter().map(|&ix| self.data[ix].clone()).collect();
+        let d = self.data();
+        let data = locs.iter().map(|&ix| d[ix].clone()).collect();
         Collection::new(data)
     }
 
@@ -96,18 +113,18 @@ impl<T: Hash + Clone + Eq> Collection<T> {
             return;
         }
         let mut index = IndexMap::new();
-        for (ix, d) in self.data.iter().enumerate() {
+        for (ix, d) in self.data().iter().enumerate() {
             let entry = index.entry(d.clone()).or_insert(Vec::new());
             entry.push(ix)
         }
-        *self.index.borrow_mut() = Some(index);
+        *self.index().borrow_mut() = Some(index);
     }
 
     pub(crate) fn inner_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<usize>) {
         // TODO if "other" is already indexed, we can skip this step
         self.build_index();
 
-        let borrow = self.index.borrow();
+        let borrow = self.index().borrow();
         let colix = borrow.as_ref().unwrap();
         let mut pair: Vec<(usize, usize)> = Vec::new();
         for (rix, val) in other.iter().enumerate() {
@@ -130,7 +147,7 @@ impl<T: Num + Copy> Collection<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
     pub fn sum(&self) -> T {
-        self.data.iter().fold(num::zero(), |acc, &v| acc + v)
+        self.data().iter().fold(num::zero(), |acc, &v| acc + v)
     }
 }
 
@@ -143,7 +160,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
     pub fn variance(&self) -> f64 {
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
-        self.data.iter().for_each(|n| {
+        self.data().iter().for_each(|n| {
             let n: f64 = n.as_();
             sigmafxsqr += n * n;
             sigmafx += n;
@@ -162,7 +179,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
 
-        self.data.iter().for_each(|n| {
+        self.data().iter().for_each(|n| {
             let n: f64 = n.as_();
             if n < min {
                 min = n;
