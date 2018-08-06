@@ -53,8 +53,14 @@ impl<T> Collection<T> {
     pub fn map<R>(&self, test: impl Fn(&T) -> R) -> Collection<R> {
         Collection::new(self.iter().map(test).collect())
     }
+
+    pub fn mask(&self, test: impl Fn(&T) -> bool) -> Mask {
+        let mask = self.map(test);
+        mask.into()
+    }
 }
 
+// We don't care whether the index exists so need custom impl
 impl<A, T> PartialEq<A> for Collection<T>
 where
     A: AsRef<[T]>,

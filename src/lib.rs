@@ -377,7 +377,8 @@ impl Column {
         // let mask = df["thing"].mask(|v| v > 10)
         // TODO Macro:
         // let mask = m!(df["thing"] > 10)
-        Mask(self.map_typed(test))
+
+        self.map_typed(test).into()
     }
 
     pub fn map<T, R>(&self, f: impl Fn(&T) -> R) -> Column
@@ -462,16 +463,26 @@ pub struct Describe {
     pub stdev: f64,
 }
 
-pub struct Mask(Collection<Bool>);
+pub struct Mask {
+    mask: Collection<Bool>,
+    true_count: usize,
+}
 
 // TODO mask::from(vec<Bool>)
 impl Mask {
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.mask.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Bool> {
-        self.0.iter()
+        self.mask.iter()
+    }
+}
+
+impl From<Collection<bool>> for Mask {
+    fn from(mask: Collection<bool>) -> Self {
+        let true_count = mask.iter().fold(0, |acc, &v| if v { acc + 1 } else { acc });
+        Mask { mask, true_count }
     }
 }
 

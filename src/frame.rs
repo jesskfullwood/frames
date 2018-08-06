@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use {Collection, Result};
+use {Collection, Mask, Result};
 
 // The HList implementation is a modified version of the one found in the `frunk` crate.
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
@@ -48,7 +48,7 @@ impl<H: HList> Frame<H> {
     {
         let coll = coll.into();
         if !H::IS_ROOT && coll.len() != self.len {
-            bail!("Mismatched length")
+            bail!("Mismatched lengths ({} and {})", self.len(), coll.len())
         } else {
             Ok(Frame {
                 len: coll.len(),
@@ -133,6 +133,16 @@ where
             len: locs.len(),
         }
     }
+
+    pub fn apply_mask(&self, mask: &Mask) -> Result<Self> {
+        if mask.len() != self.len() {
+            bail!("Mismatched lengths ({} and {})", self.len(), mask.len())
+        }
+        Ok(Frame {
+            hlist: self.hlist.apply_mask(mask),
+            len: mask.true_count,
+        })
+    }
 }
 
 impl<Head: Token, Tail: HList> Frame<HCons<Head, Tail>> {
@@ -167,6 +177,10 @@ impl CopyLocs for HNil {
     fn copy_locs(&self, _: &[usize]) -> Self {
         HNil
     }
+
+    fn apply_mask(&self, _mask: &Mask) -> Self {
+        HNil
+    }
 }
 
 pub trait Token {
@@ -198,6 +212,7 @@ where
 
 pub trait CopyLocs {
     fn copy_locs(&self, locs: &[usize]) -> Self;
+    fn apply_mask(&self, mask: &Mask) -> Self;
 }
 
 impl<Head, Tail> CopyLocs for HCons<Head, Tail>
@@ -210,6 +225,13 @@ where
         HCons {
             head: self.head.copy_locs(locs),
             tail: self.tail.copy_locs(locs),
+        }
+    }
+
+    fn apply_mask(&self, mask: &Mask) -> Self {
+        HCons {
+            head: self.head.apply_mask(mask),
+            tail: self.tail.apply_mask(mask),
         }
     }
 }
@@ -318,6 +340,7 @@ macro_rules! coldef {
 
 macro_rules! frame_alias {
     ($($frames:ident),+ -> $typFirst:ident, $($typsNext:ident),*) => { // start things off
+        pub type Frame0 = Frame<HNil>;
         frame_alias!($($frames)* -> [ $typFirst ] $($typsNext)*);
     };
     ($frame:ident $($frames:ident)* -> [$($typsCur:ident)+] $typNext:ident $($typsFut:ident)*) => {
@@ -522,6 +545,19 @@ mod tests {
         assert_eq!(f3.get::<IntT, _>(), &[1, 2, 2, 3, 4]);
         // TODO: Note sure this ordering can be relied upon
         assert_eq!(f3.get::<BoolT, _>(), &[false, false, true, true, true]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_mask() -> Result<()> {
+        let f = quickframe();
+        // TODO document - keep if true or discard-if-true? At moment it's keep-if-true
+        let mask = f.get::<IntT, _>().mask(|&v| v > 2);
+        let f2 = f.apply_mask(&mask)?;
+        assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
+        // Fails with incorrect len
+        let mask2 = f2.get::<IntT, _>().mask(|&v| v > 2);
+        assert!(f.apply_mask(&mask2).is_err());
         Ok(())
     }
 }
