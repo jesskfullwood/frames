@@ -131,7 +131,8 @@ impl DataFrame {
     /// Add an index to the named column
     /// If the column name is not recognized
     pub fn build_index(&self, name: &str) -> Result<()> {
-        let col = self.cols
+        let col = self
+            .cols
             .get(name)
             .ok_or_else(|| format_err!("Column '{}' not found", name))?;
         col.build_index();

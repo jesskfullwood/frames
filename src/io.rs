@@ -71,7 +71,8 @@ pub fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
     let headers = reader.headers()?.clone();
     let mut csviter = reader.records();
     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-    let mut columns: Vec<_> = row1.iter()
+    let mut columns: Vec<_> = row1
+        .iter()
         .map(|v| {
             let mut col = ColType::sniff(v).to_builder();
             col.push(v).unwrap();
@@ -137,7 +138,8 @@ impl DataFrame {
             }
         }
         w.write(&[b'\n'])?;
-        let buffers: Vec<_> = self.itercols()
+        let buffers: Vec<_> = self
+            .itercols()
             .map(|(_, c)| c.write_to_buffer(0, self.len()))
             .collect();
         let mut bufslices: Vec<_> = buffers
