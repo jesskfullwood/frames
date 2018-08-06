@@ -77,8 +77,7 @@ pub fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
             let mut col = ColType::sniff(v).to_builder();
             col.push(v).unwrap();
             col
-        })
-        .collect();
+        }).collect();
     for row in csviter {
         for (elem, col) in row?.iter().zip(columns.iter_mut()) {
             if col.push(elem).is_err() {
@@ -308,8 +307,7 @@ fn test_quoted_write() {
     let df = DataFrame::make(((
         "c1",
         vec![String::from(r#"thi,"',s""',"#), String::from("sword")],
-    ),))
-        .unwrap();
+    ),)).unwrap();
     let mut buf: Vec<u8> = Vec::new();
     df.write_writer(&mut buf).unwrap();
     let out = String::from_utf8(buf).unwrap();
