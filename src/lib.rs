@@ -20,11 +20,9 @@ use ordered_float::OrderedFloat;
 use collection::Collection;
 
 pub mod collection;
-// pub mod dframe;
 pub mod frame;
 mod frame_alias;
 pub mod io;
-// pub mod wrap;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;

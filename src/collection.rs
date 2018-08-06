@@ -97,6 +97,18 @@ impl<T: Clone> Collection<T> {
         Collection::new(data)
     }
 
+    // TODO This basically exists to help with doing group-bys
+    // might be a way to do things faster/more cleanly
+    // It is guaranteed that each Vec<usize> is nonempty
+    pub(crate) fn copy_first_locs(&self, locs: &[Vec<usize>]) -> Collection<T> {
+        let d = self.data();
+        let data = locs
+            .iter()
+            .map(|inner| d[*inner.first().unwrap()].clone())
+            .collect();
+        Collection::new(data)
+    }
+
     pub fn apply_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
         Collection::new(
@@ -141,6 +153,13 @@ impl<T: Hash + Clone + Eq> Collection<T> {
             right.push(r);
         });
         (left, right)
+    }
+
+    pub(crate) fn index_values(&self) -> Vec<Vec<usize>> {
+        self.build_index();
+        let borrow = self.index().borrow();
+        let colix = borrow.as_ref().unwrap();
+        colix.values().cloned().collect()
     }
 }
 

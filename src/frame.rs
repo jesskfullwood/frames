@@ -1,6 +1,6 @@
+pub use frame_alias::*;
 use std::hash::Hash;
 use std::marker::PhantomData;
-pub use frame_alias::*;
 
 use {Collection, Mask, Result};
 
@@ -33,10 +33,10 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline]
-    pub fn get<T, Index>(&self) -> &Collection<T::Output>
+    pub fn get<Col, Index>(&self) -> &Collection<Col::Output>
     where
-        T: ColId,
-        H: Selector<T, Index>,
+        Col: ColId,
+        H: Selector<Col, Index>,
     {
         Selector::get(&self.hlist)
     }
@@ -143,6 +143,28 @@ where
             hlist: self.hlist.apply_mask(mask),
             len: mask.true_count,
         })
+    }
+
+    pub fn groupby<Col, Index>(self) -> GroupBy<H, HCons<Col, HNil>>
+    where
+        Col: ColId,
+        Col::Output: Eq + Clone + Hash,
+        H: Selector<Col, Index>,
+    {
+        let (grouping_index, grouped_col) = {
+            // lifetimes workaround
+            let grouping_col = self.get::<Col, _>();
+            let mut index = grouping_col.index_values();
+            index.sort_unstable();
+            let groupedcol = grouping_col.copy_first_locs(&index);
+            (index, groupedcol)
+        };
+        let grouped_frame = Frame::new().addcol(grouped_col).unwrap();
+        GroupBy {
+            frame: self,
+            grouping_index,
+            grouped_frame,
+        }
     }
 }
 
@@ -320,6 +342,48 @@ where
     }
 }
 
+pub struct GroupBy<H: HList, G: HList> {
+    frame: Frame<H>,
+    grouping_index: Vec<Vec<usize>>,
+    grouped_frame: Frame<G>,
+}
+
+impl<H, G> GroupBy<H, G>
+where
+    H: HList,
+    G: HList,
+{
+    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
+    where
+        Col: ColId,
+        NewCol: ColId,
+        H: Selector<Col, Index>,
+        AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
+    {
+        let res: Vec<NewCol::Output> = {
+            let grouped_col = self.frame.get::<Col, _>();
+            let col_data = grouped_col.data();
+            self.grouping_index
+                .iter()
+                .map(|grp| {
+                    // TODO could this be done with an iterator instead of allocating a vec?
+                    let to_acc: Vec<_> = grp.iter().map(|&ix| &col_data[ix]).collect();
+                    func(&to_acc)
+                }).collect()
+        };
+        let grouped_frame = self.grouped_frame.addcol(res).unwrap();
+        GroupBy {
+            frame: self.frame,
+            grouping_index: self.grouping_index,
+            grouped_frame,
+        }
+    }
+
+    pub fn done(self) -> Frame<G> {
+        self.grouped_frame
+    }
+}
+
 pub struct Here {
     _priv: (),
 }
@@ -458,6 +522,23 @@ mod tests {
         // Fails with incorrect len
         let mask2 = f2.get::<IntT, _>().mask(|&v| v > 2);
         assert!(f.apply_mask(&mask2).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_groupby() -> Result<()> {
+        // TODO special method for first column, or some kind of convenience builder
+        let f: Frame2<IntT, FloatT> = Frame::new()
+            .addcol(vec![1, 3, 2, 3, 4, 2])?
+            .addcol(vec![1., 2., 1., 1., 1., 1.])?;
+        define_col!(FloatSum, f64);
+        // TODO can we rewrite to get rid of the dangling type parameters?
+        let g = f
+            .groupby::<IntT, _>()
+            .acc::<FloatT, FloatSum, _, _>(|slice| slice.iter().map(|v| *v).sum())
+            .done();
+        assert_eq!(g.get::<IntT, _>(), &[1, 3, 2, 4]);
+        assert_eq!(g.get::<FloatSum, _>(), &[1., 3., 2., 1.]);
         Ok(())
     }
 }
