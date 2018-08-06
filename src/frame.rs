@@ -33,21 +33,21 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline(always)]
-    pub fn fetch<T: Token, Index>(&self) -> &[T::Output]
+    pub fn get<T, Index>(&self) -> &[T::Output]
     where
-        H: Fetcher<T, Index>,
+        T: Token,
+        H: Selector<T, Index>,
     {
-        Fetcher::fetch(&self.hlist)
+        Selector::get(&self.hlist)
     }
 
     #[inline(always)]
-    pub fn extract<T: Token, Index>(
-        self,
-    ) -> (Vec<T::Output>, Frame<<H as Fetcher<T, Index>>::Remainder>)
+    pub fn extract<T, Index>(self) -> (Vec<T::Output>, Frame<<H as Extractor<T, Index>>::Remainder>)
     where
-        H: Fetcher<T, Index>,
+        T: Token,
+        H: Extractor<T, Index>,
     {
-        let (v, hlist) = Fetcher::extract(self.hlist);
+        let (v, hlist) = Extractor::extract(self.hlist);
         (
             v,
             Frame {
@@ -121,19 +121,19 @@ impl<Head: Token, Tail> HCons<Head, Tail> {
     #[inline(always)]
     pub fn extract<T: Token, Index>(
         self,
-    ) -> (Vec<T::Output>, <Self as Fetcher<T, Index>>::Remainder)
+    ) -> (Vec<T::Output>, <Self as Extractor<T, Index>>::Remainder)
     where
-        Self: Fetcher<T, Index>,
+        Self: Extractor<T, Index>,
     {
-        Fetcher::extract(self)
+        Extractor::extract(self)
     }
 
     #[inline(always)]
-    pub fn fetch<T: Token, Index>(&self) -> &[T::Output]
+    pub fn get<T: Token, Index>(&self) -> &[T::Output]
     where
-        Self: Fetcher<T, Index>,
+        Self: Selector<T, Index>,
     {
-        Fetcher::fetch(self)
+        Selector::get(self)
     }
 
     #[inline(always)]
@@ -172,36 +172,53 @@ where
     }
 }
 
-pub trait Fetcher<Target: Token, Index> {
-    type Remainder: HList;
-    fn extract(self) -> (Vec<Target::Output>, Self::Remainder);
-    fn fetch(&self) -> &[Target::Output];
+pub trait Selector<S: Token, I> {
+    fn get(&self) -> &[S::Output];
 }
 
-impl<Head: Token, Tail: HList> Fetcher<Head, Here> for HCons<Head, Tail> {
+impl<T: Token, Tail> Selector<T, Here> for HCons<T, Tail> {
+    fn get(&self) -> &[T::Output] {
+        &self.head
+    }
+}
+
+impl<Head, Tail, FromTail, TailIndex> Selector<FromTail, There<TailIndex>> for HCons<Head, Tail>
+where
+    Head: Token,
+    FromTail: Token,
+    Tail: Selector<FromTail, TailIndex>,
+{
+    fn get(&self) -> &[FromTail::Output] {
+        self.tail.get()
+    }
+}
+
+pub trait Extractor<Target: Token, Index> {
+    type Remainder: HList;
+    fn extract(self) -> (Vec<Target::Output>, Self::Remainder);
+}
+
+impl<Head: Token, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
     type Remainder = Tail;
 
     fn extract(self) -> (Vec<Head::Output>, Self::Remainder) {
         (self.head, self.tail)
     }
-    fn fetch(&self) -> &[Head::Output] {
-        &self.head
-    }
 }
 
-impl<Head, Tail, FromTail, TailIndex> Fetcher<FromTail, There<TailIndex>> for HCons<Head, Tail>
+impl<Head, Tail, FromTail, TailIndex> Extractor<FromTail, There<TailIndex>> for HCons<Head, Tail>
 where
     Head: Token,
     FromTail: Token,
-    Tail: Fetcher<FromTail, TailIndex>,
+    Tail: Extractor<FromTail, TailIndex>,
 {
-    type Remainder = HCons<Head, <Tail as Fetcher<FromTail, TailIndex>>::Remainder>;
+    type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
 
     fn extract(self) -> (Vec<FromTail::Output>, Self::Remainder) {
         let (target, tail_remainder): (
             Vec<FromTail::Output>,
-            <Tail as Fetcher<FromTail, TailIndex>>::Remainder,
-        ) = <Tail as Fetcher<FromTail, TailIndex>>::extract(self.tail);
+            <Tail as Extractor<FromTail, TailIndex>>::Remainder,
+        ) = <Tail as Extractor<FromTail, TailIndex>>::extract(self.tail);
         (
             target,
             HCons {
@@ -209,9 +226,6 @@ where
                 tail: tail_remainder,
             },
         )
-    }
-    fn fetch(&self) -> &[FromTail::Output] {
-        <Tail as Fetcher<FromTail, TailIndex>>::fetch(&self.tail)
     }
 }
 
@@ -257,7 +271,7 @@ mod tests {
         assert_eq!(f.num_cols(), 3);
         assert_eq!(f.len, 1);
         {
-            let f = f.fetch::<FloatT, _>();
+            let f = f.get::<FloatT, _>();
             assert_eq!(f, &[1.23]);
         }
         let (v, f) = f.extract::<IntT, _>();
@@ -285,7 +299,7 @@ mod tests {
             .addcol(vec![String::from("Hello")]);
         coldef!(Added, i64);
         let h = h.addcol::<Added>(vec![123]);
-        let v = h.fetch::<Added, _>();
+        let v = h.get::<Added, _>();
         assert_eq!(v, &[123]);
     }
 
