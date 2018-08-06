@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::marker::PhantomData;
 
 use {Collection, Result};
@@ -6,6 +7,7 @@ use {Collection, Result};
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 // for details. (In fact, that implementation is much more complete)
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     hlist: H,
     len: usize,
@@ -25,6 +27,19 @@ impl<H: HList> Frame<H> {
         self.len
     }
 
+    pub fn num_cols(&self) -> usize {
+        H::SIZE
+    }
+
+    #[inline]
+    pub fn get<T, Index>(&self) -> &Collection<T::Output>
+    where
+        T: Token,
+        H: Selector<T, Index>,
+    {
+        Selector::get(&self.hlist)
+    }
+
     // TODO: alternative would be to explicitly pass the token
     pub fn addcol<T, I>(self, coll: I) -> Result<Frame<HCons<T, H>>>
     where
@@ -40,15 +55,6 @@ impl<H: HList> Frame<H> {
                 hlist: self.hlist.addcol(coll),
             })
         }
-    }
-
-    #[inline(always)]
-    pub fn get<T, Index>(&self) -> &Collection<T::Output>
-    where
-        T: Token,
-        H: Selector<T, Index>,
-    {
-        Selector::get(&self.hlist)
     }
 
     #[inline(always)]
@@ -94,9 +100,38 @@ impl<H: HList> Frame<H> {
             hlist: self.hlist.concat_front(other.hlist),
         })
     }
+}
 
-    pub fn num_cols(&self) -> usize {
-        H::SIZE
+impl<H> Frame<H>
+where
+    H: HList + CopyLocs,
+{
+    pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
+        self,
+        other: Frame<Oth>,
+    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    where
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + CopyLocs,
+        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        LCol: Token,
+        LCol::Output: Eq + Clone + Hash,
+        RCol: Token<Output = LCol::Output>,
+        H: Selector<LCol, LIx>,
+    {
+        let left = self.get::<LCol, _>();
+        let right = other.get::<RCol, _>();
+        let (leftixs, rightixs) = left.inner_join_locs(right);
+        let leftframe = self.copy_locs(&leftixs);
+        let rightframe = other.copy_locs(&rightixs);
+        let (_, rightframe) = rightframe.extract::<RCol, _>();
+        leftframe.concat(rightframe).unwrap()
+    }
+
+    fn copy_locs(&self, locs: &[usize]) -> Frame<H> {
+        Frame {
+            hlist: self.hlist.copy_locs(locs),
+            len: locs.len(),
+        }
     }
 }
 
@@ -128,6 +163,12 @@ pub trait HList: Sized {
     }
 }
 
+impl CopyLocs for HNil {
+    fn copy_locs(&self, locs: &[usize]) -> Self {
+        HNil
+    }
+}
+
 pub trait Token {
     type Output;
 }
@@ -146,9 +187,31 @@ pub struct HCons<H: Token, T> {
     pub tail: T,
 }
 
-impl<H: Token, T: HList> HList for HCons<H, T> {
-    const SIZE: usize = 1 + <T as HList>::SIZE;
+impl<Head, Tail> HList for HCons<Head, Tail>
+where
+    Head: Token,
+    Tail: HList,
+{
+    const SIZE: usize = 1 + <Tail as HList>::SIZE;
     const IS_ROOT: bool = false;
+}
+
+pub trait CopyLocs {
+    fn copy_locs(&self, locs: &[usize]) -> Self;
+}
+
+impl<Head, Tail> CopyLocs for HCons<Head, Tail>
+where
+    Head: Token,
+    Head::Output: Clone,
+    Tail: CopyLocs,
+{
+    fn copy_locs(&self, locs: &[usize]) -> Self {
+        HCons {
+            head: self.head.copy_locs(locs),
+            tail: self.tail.copy_locs(locs),
+        }
+    }
 }
 
 pub trait Concat<C> {
@@ -245,6 +308,7 @@ pub struct There<T> {
 #[macro_export]
 macro_rules! coldef {
     ($name:ident, $typ:ty) => {
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         struct $name;
         impl Token for $name {
             type Output = $typ;
@@ -255,10 +319,12 @@ macro_rules! coldef {
 type List1<T1> = HCons<T1, HNil>;
 type List2<T1, T2> = HCons<T2, List1<T1>>;
 type List3<T1, T2, T3> = HCons<T3, List2<T1, T2>>;
+type List4<T1, T2, T3, T4> = HCons<T4, List3<T1, T2, T3>>;
 pub type Frame0 = Frame<HNil>;
 pub type Frame1<T1> = Frame<List1<T1>>;
 pub type Frame2<T1, T2> = Frame<List2<T1, T2>>;
 pub type Frame3<T1, T2, T3> = Frame<List3<T1, T2, T3>>;
+pub type Frame4<T1, T2, T3, T4> = Frame<List4<T1, T2, T3, T4>>;
 
 #[cfg(test)]
 mod tests {
@@ -266,10 +332,27 @@ mod tests {
     use super::*;
 
     coldef!(IntT, i64);
+    coldef!(IntT2, i64);
     coldef!(StringT, String);
     coldef!(FloatT, f64);
+    coldef!(BoolT, bool);
 
     type Data3 = Frame3<IntT, FloatT, StringT>;
+
+    fn quickframe() -> Data3 {
+        Frame::new()
+            .addcol(vec![1, 2, 3, 4])
+            .unwrap()
+            .addcol(vec![5., 4., 3., 2.])
+            .unwrap()
+            .addcol(
+                "this is the words"
+                    .split(' ')
+                    .map(String::from)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap()
+    }
 
     #[test]
     fn test_basic_frame() -> Result<()> {
@@ -319,7 +402,7 @@ mod tests {
         {
             let f1 = Frame::new();
             let f2 = Frame::new();
-            let f3: Frame0 = f1.concat(f2)?;
+            let _f3: Frame0 = f1.concat(f2)?;
         }
 
         {
@@ -336,6 +419,19 @@ mod tests {
             assert!(f4.concat(f3).is_err()) // mismatched types
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_inner_join() -> Result<()> {
+        let f1 = quickframe();
+        let f2: Frame2<IntT2, BoolT> = Frame::new()
+            .addcol(vec![3, 2, 4, 2, 1])?
+            .addcol(vec![true, false, true, true, false])?;
+        let f3: Frame4<IntT, FloatT, StringT, BoolT> = f1.inner_join::<IntT, IntT2, _, _, _>(f2);
+        assert_eq!(f3.get::<IntT, _>(), &[1, 2, 2, 3, 4]);
+        // TODO: Note sure this ordering can be relied upon
+        assert_eq!(f3.get::<BoolT, _>(), &[false, false, true, true, true]);
         Ok(())
     }
 }
