@@ -34,7 +34,7 @@ impl<H: HList> Frame<H> {
     #[inline]
     pub fn get<T, Index>(&self) -> &Collection<T::Output>
     where
-        T: Token,
+        T: ColId,
         H: Selector<T, Index>,
     {
         Selector::get(&self.hlist)
@@ -43,7 +43,7 @@ impl<H: HList> Frame<H> {
     // TODO: alternative would be to explicitly pass the token
     pub fn addcol<T, I>(self, coll: I) -> Result<Frame<HCons<T, H>>>
     where
-        T: Token,
+        T: ColId,
         I: Into<Collection<T::Output>>,
     {
         let coll = coll.into();
@@ -65,7 +65,7 @@ impl<H: HList> Frame<H> {
         Frame<<H as Extractor<T, Index>>::Remainder>,
     )
     where
-        T: Token,
+        T: ColId,
         H: Extractor<T, Index>,
     {
         let (v, hlist) = Extractor::extract(self.hlist);
@@ -104,18 +104,18 @@ impl<H: HList> Frame<H> {
 
 impl<H> Frame<H>
 where
-    H: HList + CopyLocs,
+    H: HList + HListExt,
 {
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: Frame<Oth>,
     ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + CopyLocs,
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
         <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
-        LCol: Token,
+        LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
-        RCol: Token<Output = LCol::Output>,
+        RCol: ColId<Output = LCol::Output>,
         H: Selector<LCol, LIx>,
     {
         let left = self.get::<LCol, _>();
@@ -145,7 +145,7 @@ where
     }
 }
 
-impl<Head: Token, Tail: HList> Frame<HCons<Head, Tail>> {
+impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
     #[inline(always)]
     pub fn pop(self) -> (Collection<Head::Output>, Frame<Tail>) {
         let tail = Frame {
@@ -165,7 +165,7 @@ pub trait HList: Sized {
         Self::SIZE
     }
 
-    fn addcol<T: Token>(self, head: impl Into<Collection<T::Output>>) -> HCons<T, Self> {
+    fn addcol<T: ColId>(self, head: impl Into<Collection<T::Output>>) -> HCons<T, Self> {
         HCons {
             head: head.into(),
             tail: self,
@@ -173,7 +173,7 @@ pub trait HList: Sized {
     }
 }
 
-impl CopyLocs for HNil {
+impl HListExt for HNil {
     fn copy_locs(&self, _: &[usize]) -> Self {
         HNil
     }
@@ -183,7 +183,7 @@ impl CopyLocs for HNil {
     }
 }
 
-pub trait Token {
+pub trait ColId {
     type Output;
 }
 
@@ -196,30 +196,30 @@ impl HList for HNil {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct HCons<H: Token, T> {
+pub struct HCons<H: ColId, T> {
     pub head: Collection<H::Output>,
     pub tail: T,
 }
 
 impl<Head, Tail> HList for HCons<Head, Tail>
 where
-    Head: Token,
+    Head: ColId,
     Tail: HList,
 {
     const SIZE: usize = 1 + <Tail as HList>::SIZE;
     const IS_ROOT: bool = false;
 }
 
-pub trait CopyLocs {
+pub trait HListExt {
     fn copy_locs(&self, locs: &[usize]) -> Self;
     fn apply_mask(&self, mask: &Mask) -> Self;
 }
 
-impl<Head, Tail> CopyLocs for HCons<Head, Tail>
+impl<Head, Tail> HListExt for HCons<Head, Tail>
 where
-    Head: Token,
+    Head: ColId,
     Head::Output: Clone,
-    Tail: CopyLocs,
+    Tail: HListExt,
 {
     fn copy_locs(&self, locs: &[usize]) -> Self {
         HCons {
@@ -250,7 +250,7 @@ impl<C: HList> Concat<C> for HNil {
 
 impl<Head, Tail, C> Concat<C> for HCons<Head, Tail>
 where
-    Head: Token,
+    Head: ColId,
     Tail: Concat<C>,
 {
     type Combined = HCons<Head, <Tail as Concat<C>>::Combined>;
@@ -262,11 +262,11 @@ where
     }
 }
 
-pub trait Selector<S: Token, I> {
+pub trait Selector<S: ColId, I> {
     fn get(&self) -> &Collection<S::Output>;
 }
 
-impl<T: Token, Tail> Selector<T, Here> for HCons<T, Tail> {
+impl<T: ColId, Tail> Selector<T, Here> for HCons<T, Tail> {
     fn get(&self) -> &Collection<T::Output> {
         &self.head
     }
@@ -274,8 +274,8 @@ impl<T: Token, Tail> Selector<T, Here> for HCons<T, Tail> {
 
 impl<Head, Tail, FromTail, TailIndex> Selector<FromTail, There<TailIndex>> for HCons<Head, Tail>
 where
-    Head: Token,
-    FromTail: Token,
+    Head: ColId,
+    FromTail: ColId,
     Tail: Selector<FromTail, TailIndex>,
 {
     fn get(&self) -> &Collection<FromTail::Output> {
@@ -283,12 +283,12 @@ where
     }
 }
 
-pub trait Extractor<Target: Token, Index> {
+pub trait Extractor<Target: ColId, Index> {
     type Remainder: HList;
     fn extract(self) -> (Collection<Target::Output>, Self::Remainder);
 }
 
-impl<Head: Token, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
+impl<Head: ColId, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
     type Remainder = Tail;
 
     fn extract(self) -> (Collection<Head::Output>, Self::Remainder) {
@@ -298,8 +298,8 @@ impl<Head: Token, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
 
 impl<Head, Tail, FromTail, TailIndex> Extractor<FromTail, There<TailIndex>> for HCons<Head, Tail>
 where
-    Head: Token,
-    FromTail: Token,
+    Head: ColId,
+    FromTail: ColId,
     Tail: Extractor<FromTail, TailIndex>,
 {
     type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
@@ -328,11 +328,11 @@ pub struct There<T> {
 }
 
 #[macro_export]
-macro_rules! coldef {
+macro_rules! define_col {
     ($name:ident, $typ:ty) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         struct $name;
-        impl Token for $name {
+        impl ColId for $name {
             type Output = $typ;
         }
     };
@@ -444,11 +444,11 @@ mod tests {
 
     use super::*;
 
-    coldef!(IntT, i64);
-    coldef!(IntT2, i64);
-    coldef!(StringT, String);
-    coldef!(FloatT, f64);
-    coldef!(BoolT, bool);
+    define_col!(IntT, i64);
+    define_col!(IntT2, i64);
+    define_col!(StringT, String);
+    define_col!(FloatT, f64);
+    define_col!(BoolT, bool);
 
     type Data3 = Frame3<IntT, FloatT, StringT>;
 
@@ -502,7 +502,7 @@ mod tests {
             .addcol(vec![10i64])?
             .addcol(vec![1.23f64])?
             .addcol(vec![String::from("Hello")])?;
-        coldef!(Added, i64);
+        define_col!(Added, i64);
         let f = f.addcol::<Added, _>(vec![123])?;
         let v = f.get::<Added, _>();
         assert_eq!(v, &[123]);
