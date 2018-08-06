@@ -1,5 +1,6 @@
-use *;
 use std::sync::Arc;
+
+use *;
 
 #[derive(Clone)]
 pub struct Collection<T>(Arc<CollectionInner<T>>);

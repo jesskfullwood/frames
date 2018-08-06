@@ -19,7 +19,7 @@ struct Person {
     age: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum Sex {
     Male,
     Female
@@ -27,8 +27,21 @@ enum Sex {
 
 #[test]
 fn test_derive() {
-    unimplemented!()
+    let people = vec![
+        Person {
+            id: 101,
+            sex: Sex::Male,
+            name: "Barold".into(),
+            age: 32
+        },
+        Person {
+            id: 102,
+            sex: Sex::Female,
+            name: "Baretta".into(),
+            age: 23
+        }];
 
+    let frame = person::PersonFrame::from(people);
 }
 
 // type PersonFrame = Frame4<Id, Sex, Name, Age>

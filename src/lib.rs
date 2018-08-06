@@ -22,6 +22,7 @@ use collection::Collection;
 pub mod collection;
 // pub mod dframe;
 pub mod frame;
+mod frame_alias;
 pub mod io;
 // pub mod wrap;
 
