@@ -42,10 +42,10 @@ impl<H: HList> Frame<H> {
     }
 
     // TODO: alternative would be to explicitly pass the token
-    pub fn addcol<T, I>(self, coll: I) -> Result<Frame<HCons<T, H>>>
+    pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
-        T: ColId,
-        I: Into<Collection<T::Output>>,
+        Col: ColId,
+        Data: Into<Collection<Col::Output>>,
     {
         let coll = coll.into();
         if !H::IS_ROOT && coll.len() != self.len {
@@ -58,16 +58,32 @@ impl<H: HList> Frame<H> {
         }
     }
 
+    pub fn map_replace<Col, NewCol, Index, F>(
+        self,
+        func: F,
+    ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
+    where
+        Col: ColId,
+        NewCol: ColId,
+        H: Mapper<Col, NewCol, Index>,
+        F: Fn(&Col::Output) -> NewCol::Output,
+    {
+        Frame {
+            hlist: self.hlist.map_replace(func),
+            len: self.len,
+        }
+    }
+
     #[inline(always)]
-    pub fn extract<T, Index>(
+    pub fn extract<Col, Index>(
         self,
     ) -> (
-        Collection<T::Output>,
-        Frame<<H as Extractor<T, Index>>::Remainder>,
+        Collection<Col::Output>,
+        Frame<<H as Extractor<Col, Index>>::Remainder>,
     )
     where
-        T: ColId,
-        H: Extractor<T, Index>,
+        Col: ColId,
+        H: Extractor<Col, Index>,
     {
         let (v, hlist) = Extractor::extract(self.hlist);
         (
@@ -141,6 +157,7 @@ where
         F: Fn(&Col::Output) -> bool,
         H: Selector<Col, Index>,
     {
+        // TODO also add filter2, filter3...
         let mask = self.get::<Col, _>().mask(func);
         // We know the mask is the right length
         self.filter_mask(&mask).unwrap()
@@ -155,7 +172,6 @@ where
             len: mask.true_count,
         })
     }
-
 
     pub fn groupby<Col, Index>(self) -> GroupBy<H, HCons<Col, HNil>>
     where
@@ -297,12 +313,12 @@ where
     }
 }
 
-pub trait Selector<S: ColId, I> {
+pub trait Selector<S: ColId, Index> {
     fn get(&self) -> &Collection<S::Output>;
 }
 
-impl<T: ColId, Tail> Selector<T, Here> for HCons<T, Tail> {
-    fn get(&self) -> &Collection<T::Output> {
+impl<Col: ColId, Tail> Selector<Col, Here> for HCons<Col, Tail> {
+    fn get(&self) -> &Collection<Col::Output> {
         &self.head
     }
 }
@@ -351,6 +367,51 @@ where
                 tail: tail_remainder,
             },
         )
+    }
+}
+
+pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
+    type Mapped: HList;
+    fn map_replace<F>(self, func: F) -> Self::Mapped
+    where
+        F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
+}
+
+impl<Head: ColId, Tail: HList, NewCol> Mapper<Head, NewCol, Here> for HCons<Head, Tail>
+where
+    Head: ColId,
+    NewCol: ColId,
+    Tail: HList,
+{
+    type Mapped = HCons<NewCol, Tail>;
+    fn map_replace<F>(self, func: F) -> Self::Mapped
+    where
+        F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
+    {
+        HCons {
+            head: self.head.map(func),
+            tail: self.tail,
+        }
+    }
+}
+
+impl<Head, Tail, NewCol, FromTail, TailIndex> Mapper<FromTail, NewCol, There<TailIndex>>
+    for HCons<Head, Tail>
+where
+    Head: ColId,
+    FromTail: ColId,
+    NewCol: ColId,
+    Tail: HList + Mapper<FromTail, NewCol, TailIndex>,
+{
+    type Mapped = HCons<Head, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
+    fn map_replace<F>(self, func: F) -> Self::Mapped
+    where
+        F: Fn(&FromTail::Output) -> <NewCol as ColId>::Output,
+    {
+        HCons {
+            head: self.head,
+            tail: self.tail.map_replace(func),
+        }
     }
 }
 
@@ -564,5 +625,12 @@ mod tests {
         assert_eq!(g.get::<FloatSum, _>(), &[1., 3., 2., 1.]);
         assert_eq!(g.get::<TrueCt, _>(), &[1, 0, 1, 1]);
         Ok(())
+    }
+
+    #[test]
+    fn test_map_replace() {
+        let f = quickframe();
+        let f2 = f.map_replace::<FloatT, FloatT, _, _>(|&v| v * v );
+        assert_eq!(f2.get::<FloatT, _>(), &[25., 16., 9., 4.]);
     }
 }
