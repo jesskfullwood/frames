@@ -1,7 +1,7 @@
 pub use frame_alias::*;
+use id;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use id;
 
 use {Collection, Mask, Result};
 
@@ -21,6 +21,12 @@ impl Frame<HNil> {
             hlist: HNil,
             len: 0,
         }
+    }
+}
+
+impl Default for Frame<HNil> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -127,7 +133,7 @@ where
 {
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
-        other: Frame<Oth>,
+        other: &Frame<Oth>,
     ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
@@ -443,7 +449,8 @@ where
                 .iter()
                 .map(|grp| {
                     // TODO could this be done with an iterator instead of allocating a vec?
-                    let to_acc: Vec<&Col::Output> = grouped_col.iterate_indices(grp.iter().cloned())
+                    let to_acc: Vec<&Col::Output> = grouped_col
+                        .iterate_indices(grp.iter().cloned())
                         .filter_map(id)
                         .collect();
                     func(&to_acc)
@@ -583,7 +590,7 @@ mod tests {
         let f2: Frame2<IntT2, BoolT> = Frame::new()
             .addcol(vec![3, 2, 4, 2, 1])?
             .addcol(vec![true, false, true, true, false])?;
-        let f3: Frame4<IntT, FloatT, StringT, BoolT> = f1.inner_join::<IntT, IntT2, _, _, _>(f2);
+        let f3: Frame4<IntT, FloatT, StringT, BoolT> = f1.inner_join::<IntT, IntT2, _, _, _>(&f2);
         assert_eq!(f3.get::<IntT, _>(), &[1, 2, 2, 3, 4]);
         // TODO: Note sure this ordering can be relied upon
         assert_eq!(f3.get::<BoolT, _>(), &[false, false, true, true, true]);

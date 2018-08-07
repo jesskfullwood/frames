@@ -42,7 +42,6 @@ pub(crate) fn id<T>(v: T) -> T {
     v
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataFrame {
     cols: HashMap<String, Column>,
@@ -69,6 +68,10 @@ impl DataFrame {
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn num_cols(&self) -> usize {
@@ -107,7 +110,7 @@ impl DataFrame {
         } else if col.len() != self.len {
             bail!("Column is wrong length")
         }
-        if let None = self.cols.insert(name.clone(), col) {
+        if self.cols.insert(name.clone(), col).is_none() {
             self.order.push(name);
         }
         Ok(())
@@ -115,7 +118,7 @@ impl DataFrame {
 
     /// Add the columns of another dataframe to this frame
     pub fn combine(&mut self, other: &DataFrame) -> Result<()> {
-        if self.len() > 0 && self.len() != other.len() {
+        if !self.is_empty() && self.len() != other.len() {
             bail!(
                 "Mismatched lengths (expected {}, got {})",
                 self.len(),
@@ -181,17 +184,23 @@ impl DataFrame {
     }
 }
 
+impl Default for DataFrame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for DataFrame {
     // TODO print some actual values
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
-        write!(
+        writeln!(
             f,
-            "DataFrame - {} columns, {} rows\n",
+            "DataFrame - {} columns, {} rows",
             self.num_cols(),
             self.len()
         )?;
         for (name, c) in self.itercols() {
-            write!(f, "    {:10}: {:?}\n", name, c.coltype())?;
+            write!(f, "    {:10}: {:?}", name, c.coltype())?;
         }
         Ok(())
     }

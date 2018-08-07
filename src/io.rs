@@ -15,13 +15,13 @@ enum CollectionBuilder {
 impl CollectionBuilder {
     fn push(&mut self, record: &str) -> Result<()> {
         use self::CollectionBuilder as CB;
-        let out = match self {
-            CB::Float(v) => v.push(record.parse::<Float>()?.into()),
+        match self {
+            CB::Float(v) => v.push(record.parse::<Float>()?),
             CB::Int(v) => v.push(record.parse::<Int>()?),
             CB::Bool(v) => v.push(record.parse::<Bool>()?),
             CB::String(v) => v.push(record.into()),
         };
-        Ok(out)
+        Ok(())
     }
 
     fn into_column(self) -> Column {
@@ -41,9 +41,7 @@ impl CollectionBuilder {
         use self::CollectionBuilder as CB;
         use ColType as CT;
         let out = match (self, newty) {
-            (CB::Int(v), CT::Float) => {
-                CB::Float(v.iter().map(|&v| Float::from(v as f64)).collect())
-            }
+            (CB::Int(v), CT::Float) => CB::Float(v.iter().map(|&v| v as Float).collect()),
             (CB::Int(v), CT::String) => {
                 // TODO could this lose information? Leading/trailing spaces?
                 CB::String(v.iter().map(|&v| v.to_string()).collect())
@@ -110,7 +108,7 @@ impl ColType {
         }
     }
 
-    fn to_builder(&self) -> CollectionBuilder {
+    fn to_builder(self) -> CollectionBuilder {
         use ColType as CT;
         match self {
             CT::Int => CollectionBuilder::Int(Vec::new()),
@@ -133,10 +131,10 @@ impl DataFrame {
         for (ix, name) in self.colnames().iter().enumerate() {
             write!(w, "{}", name)?;
             if ix != ncols - 1 {
-                w.write(&[b','])?;
+                w.write_all(&[b','])?;
             }
         }
-        w.write(&[b'\n'])?;
+        w.write_all(&[b'\n'])?;
         let buffers: Vec<_> = self
             .itercols()
             .map(|(_, c)| c.write_to_buffer(0, self.len()))
@@ -148,12 +146,12 @@ impl DataFrame {
         for _rix in 0..self.len() {
             for (cix, col) in bufslices.iter_mut().enumerate() {
                 // unwrap guaranteed to succeed
-                w.write(col.next().unwrap())?;
+                w.write_all(col.next().unwrap())?;
                 if cix != ncols - 1 {
-                    w.write(&[b','])?;
+                    w.write_all(&[b','])?;
                 }
             }
-            w.write(&[b'\n'])?;
+            w.write_all(&[b'\n'])?;
         }
         Ok(())
     }

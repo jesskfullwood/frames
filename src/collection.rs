@@ -39,8 +39,10 @@ impl<T: Debug> Debug for Collection<T> {
         // This is very inefficient but we don't care because it's only for debugging
         let vals: Vec<String> = self
             .iter()
-            .map(|v| v.map(|v| format!("{:?}", v)).unwrap_or(String::from("NA")))
-            .collect();;
+            .map(|v| {
+                v.map(|v| format!("{:?}", v))
+                    .unwrap_or_else(|| String::from("NA"))
+            }).collect();;
         write!(
             f,
             "Collection {{ indexed: {}, nulls: {}, vals: {:?} }}",
@@ -62,7 +64,7 @@ impl<T: Sized> Collection<T> {
         }))
     }
 
-    pub fn new_opt(dataiter: impl Iterator<Item=Option<T>>) -> Collection<T> {
+    pub fn new_opt(dataiter: impl Iterator<Item = Option<T>>) -> Collection<T> {
         let mut null_vec = BitVec::new();
         let mut null_count = 0;
         let mut data = Vec::new();
@@ -77,7 +79,7 @@ impl<T: Sized> Collection<T> {
                     null_count += 1;
                     // TODO this is UB when we try to DROP it, will probably segfault
 
-                    let scary: T  = unsafe { ::std::mem::zeroed() };
+                    let scary: T = unsafe { ::std::mem::zeroed() };
                     data.push(scary)
                 }
             }
@@ -92,6 +94,10 @@ impl<T: Sized> Collection<T> {
 
     pub fn len(&self) -> usize {
         self.0.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn null_count(&self) -> usize {
@@ -139,8 +145,8 @@ impl<T: Sized> Collection<T> {
     pub fn map<R>(&self, test: impl Fn(&T) -> R) -> Collection<R> {
         Collection::new_opt(self.iter().map(|v| {
             match v {
-                Some(v) => Some(test(v)),   // v.map(test) doesn't work for some reason
-                None => None
+                Some(v) => Some(test(v)), // v.map(test) doesn't work for some reason
+                None => None,
             }
         }))
     }
@@ -150,7 +156,10 @@ impl<T: Sized> Collection<T> {
         mask.into()
     }
 
-    pub fn iterate_indices(&self, iter: impl Iterator<Item=usize>) -> impl Iterator<Item=Option<&T>> {
+    pub fn iterate_indices(
+        &self,
+        iter: impl Iterator<Item = usize>,
+    ) -> impl Iterator<Item = Option<&T>> {
         let data = &self.0.data;
         let nulls = &self.0.null_vec;
         iter.map(move |ix| if nulls[ix] { Some(&data[ix]) } else { None })
@@ -166,9 +175,12 @@ where
     fn eq(&self, other: &A) -> bool {
         let slice: &[T] = other.as_ref();
         if self.null_count() > 0 || self.len() != slice.len() {
-            return false
+            return false;
         }
-        self.iter().filter_map(id).zip(slice.iter()).all(|(l, r)| l == r)
+        self.iter()
+            .filter_map(id)
+            .zip(slice.iter())
+            .all(|(l, r)| l == r)
     }
 }
 
@@ -188,19 +200,20 @@ impl<T: Clone> Collection<T> {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().clone()
-            })
-            .collect();
+            }).collect();
         Collection::new(data)
     }
 
     // Filter collection from mask. Nulls are considered equivalent to false
     pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
-        Collection::new_opt(
-            self.iter()
-                .zip(mask.iter())
-                .filter_map(|(v, b)| if b.unwrap_or(false) { Some(v.cloned()) } else { None })
-        )
+        Collection::new_opt(self.iter().zip(mask.iter()).filter_map(|(v, b)| {
+            if b.unwrap_or(false) {
+                Some(v.cloned())
+            } else {
+                None
+            }
+        }))
     }
 }
 
@@ -212,10 +225,12 @@ impl<T: Hash + Clone + Eq> Collection<T> {
             return;
         }
         let mut index = IndexMap::new();
-        for (ix, d) in self.iter().enumerate().filter_map(|(ix, d)| {
-            d.map(|d| (ix, d))
-        }) {
-            let entry = index.entry(d.clone()).or_insert(Vec::new());
+        for (ix, d) in self
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, d)| d.map(|d| (ix, d)))
+        {
+            let entry = index.entry(d.clone()).or_insert_with(Vec::new);
             entry.push(ix)
         }
         *self.0.index.borrow_mut() = Some(index);
@@ -228,7 +243,11 @@ impl<T: Hash + Clone + Eq> Collection<T> {
         let borrow = self.0.index.borrow();
         let colix = borrow.as_ref().unwrap();
         let mut pair: Vec<(usize, usize)> = Vec::new();
-        for (rix, val) in other.iter().enumerate().filter_map(|(ix, d)| d.map(|d| (ix, d))) {
+        for (rix, val) in other
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, d)| d.map(|d| (ix, d)))
+        {
             if let Some(lixs) = colix.get(val) {
                 lixs.iter().for_each(|&lix| pair.push((lix, rix)))
             }
@@ -255,7 +274,9 @@ impl<T: Num + Copy> Collection<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
     pub fn sum(&self) -> T {
-        self.iter().filter_map(id).fold(num::zero(), |acc, &v| acc + v)
+        self.iter()
+            .filter_map(id)
+            .fold(num::zero(), |acc, &v| acc + v)
     }
 }
 
@@ -322,12 +343,9 @@ impl Collection<Float> {
     }
 }
 
-
 #[test]
 fn test_build_with_nulls() {
-    let c = Collection::new_opt(
-        (0..5).map(|v| if v % 2 == 0 { Some(v) } else { None })
-    );
+    let c = Collection::new_opt((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
     assert_eq!(c.len(), 5);
     assert_eq!(c.null_count(), 2);
     let vals: Vec<Option<u32>> = c.iter().map(|v| v.cloned()).collect();
@@ -343,7 +361,12 @@ fn test_build_with_nulls() {
 
 #[test]
 fn test_build_null_strings() {
-    let words = vec![Some(String::from("hi")), None, Some(String::from("there")), None];
+    let words = vec![
+        Some(String::from("hi")),
+        None,
+        Some(String::from("there")),
+        None,
+    ];
     let c = Collection::new_opt(words.into_iter());
     assert_eq!(c.len(), 4);
     assert_eq!(c.null_count(), 2);
