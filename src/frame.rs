@@ -135,15 +135,27 @@ where
         }
     }
 
-    pub fn apply_mask(&self, mask: &Mask) -> Result<Self> {
+    pub fn filter<Col, Index, F>(&self, func: F) -> Self
+    where
+        Col: ColId,
+        F: Fn(&Col::Output) -> bool,
+        H: Selector<Col, Index>,
+    {
+        let mask = self.get::<Col, _>().mask(func);
+        // We know the mask is the right length
+        self.filter_mask(&mask).unwrap()
+    }
+
+    pub fn filter_mask(&self, mask: &Mask) -> Result<Self> {
         if mask.len() != self.len() {
             bail!("Mismatched lengths ({} and {})", self.len(), mask.len())
         }
         Ok(Frame {
-            hlist: self.hlist.apply_mask(mask),
+            hlist: self.hlist.filter_mask(mask),
             len: mask.true_count,
         })
     }
+
 
     pub fn groupby<Col, Index>(self) -> GroupBy<H, HCons<Col, HNil>>
     where
@@ -201,7 +213,7 @@ impl HListExt for HNil {
         HNil
     }
 
-    fn apply_mask(&self, _mask: &Mask) -> Self {
+    fn filter_mask(&self, _mask: &Mask) -> Self {
         HNil
     }
 }
@@ -235,7 +247,7 @@ where
 
 pub trait HListExt {
     fn copy_locs(&self, locs: &[usize]) -> Self;
-    fn apply_mask(&self, mask: &Mask) -> Self;
+    fn filter_mask(&self, mask: &Mask) -> Self;
 }
 
 impl<Head, Tail> HListExt for HCons<Head, Tail>
@@ -251,10 +263,10 @@ where
         }
     }
 
-    fn apply_mask(&self, mask: &Mask) -> Self {
+    fn filter_mask(&self, mask: &Mask) -> Self {
         HCons {
-            head: self.head.apply_mask(mask),
-            tail: self.tail.apply_mask(mask),
+            head: self.head.filter_mask(mask),
+            tail: self.tail.filter_mask(mask),
         }
     }
 }
@@ -517,28 +529,40 @@ mod tests {
         let f = quickframe();
         // TODO document - keep if true or discard-if-true? At moment it's keep-if-true
         let mask = f.get::<IntT, _>().mask(|&v| v > 2);
-        let f2 = f.apply_mask(&mask)?;
+        let f2 = f.filter_mask(&mask)?;
         assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
         // Fails with incorrect len
         let mask2 = f2.get::<IntT, _>().mask(|&v| v > 2);
-        assert!(f.apply_mask(&mask2).is_err());
+        assert!(f.filter_mask(&mask2).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn test_filter() {
+        // basically same as above
+        let f = quickframe();
+        let f2 = f.filter::<IntT, _, _>(|&v| v > 2);
+        assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
     }
 
     #[test]
     fn test_groupby() -> Result<()> {
         // TODO special method for first column, or some kind of convenience builder
-        let f: Frame2<IntT, FloatT> = Frame::new()
+        let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
             .addcol(vec![1, 3, 2, 3, 4, 2])?
-            .addcol(vec![1., 2., 1., 1., 1., 1.])?;
+            .addcol(vec![1., 2., 1., 1., 1., 1.])?
+            .addcol(vec![true, false, true, false, true, false])?;
         define_col!(FloatSum, f64);
+        define_col!(TrueCt, u32);
         // TODO can we rewrite to get rid of the dangling type parameters?
         let g = f
             .groupby::<IntT, _>()
             .acc::<FloatT, FloatSum, _, _>(|slice| slice.iter().map(|v| *v).sum())
+            .acc::<BoolT, TrueCt, _, _>(|slice| slice.iter().map(|&&v| if v { 1 } else { 0 }).sum())
             .done();
         assert_eq!(g.get::<IntT, _>(), &[1, 3, 2, 4]);
         assert_eq!(g.get::<FloatSum, _>(), &[1., 3., 2., 1.]);
+        assert_eq!(g.get::<TrueCt, _>(), &[1, 0, 1, 1]);
         Ok(())
     }
 }

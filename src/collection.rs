@@ -109,7 +109,7 @@ impl<T: Clone> Collection<T> {
         Collection::new(data)
     }
 
-    pub fn apply_mask(&self, mask: &Mask) -> Self {
+    pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
         Collection::new(
             self.iter()

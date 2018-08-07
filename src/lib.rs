@@ -332,7 +332,7 @@ impl Column {
         }
     }
 
-    pub fn apply_mask(&self, mask: &Mask) -> Self {
+    pub fn filter_mask(&self, mask: &Mask) -> Self {
         use Column::*;
         if mask.len() != self.len() {
             panic!(
@@ -343,10 +343,10 @@ impl Column {
         }
         match self {
             // TODO be nice to call c.wrap()
-            Bool(c) => Bool(c.apply_mask(mask)),
-            Int(c) => Int(c.apply_mask(mask)),
-            String(c) => String(c.apply_mask(mask)),
-            Float(c) => Float(c.apply_mask(mask)),
+            Bool(c) => Bool(c.filter_mask(mask)),
+            Int(c) => Int(c.filter_mask(mask)),
+            String(c) => String(c.filter_mask(mask)),
+            Float(c) => Float(c.filter_mask(mask)),
         }
     }
 
@@ -558,7 +558,7 @@ mod test {
         let mut df = DataFrame::new();
         df.setcol("c1", vec![1, 2, 3, 4]).unwrap();
         let mask = df["c1"].mask(|&v: &Int| v > 2);
-        let cfilt = df["c1"].apply_mask(&mask);
+        let cfilt = df["c1"].filter_mask(&mask);
         assert_eq!(cfilt, Column::from(vec![3, 4]))
     }
 
