@@ -5,6 +5,8 @@ extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
 
+// TODO: Add frame derive renaming
+
 use heck::{CamelCase, SnakeCase};
 use syn::*;
 use proc_macro::TokenStream;

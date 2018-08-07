@@ -223,15 +223,16 @@ impl WriteBuffer for String {
 
 impl Column {
     fn write_to_buffer(&self, startix: usize, n_elems: usize) -> (Vec<u8>, Vec<usize>) {
-        use std::string::String;
-        use Column::*;
-        use {Bool, Float, Int};
-        match self {
-            Int(c) => Int::write_to_buffer(&c.data()[startix..startix + n_elems]),
-            Float(c) => Float::write_to_buffer(&c.data()[startix..startix + n_elems]),
-            Bool(c) => Bool::write_to_buffer(&c.data()[startix..startix + n_elems]),
-            String(c) => String::write_to_buffer(&c.data()[startix..startix + n_elems]),
-        }
+        unimplemented!();
+        // use std::string::String;
+        // use Column::*;
+        // use {Bool, Float, Int};
+        // match self {
+        //     Int(c) => Int::write_to_buffer(&c.data()[startix..startix + n_elems]),
+        //     Float(c) => Float::write_to_buffer(&c.data()[startix..startix + n_elems]),
+        //     Bool(c) => Bool::write_to_buffer(&c.data()[startix..startix + n_elems]),
+        //     String(c) => String::write_to_buffer(&c.data()[startix..startix + n_elems]),
+        // }
     }
 }
 

@@ -2,6 +2,7 @@
 
 #[macro_use]
 extern crate failure;
+extern crate bit_vec;
 extern crate csv;
 extern crate num;
 extern crate ordered_float;
@@ -35,6 +36,12 @@ pub(crate) type Int = i64;
 
 // TODO "TypedFrame" with a custom-derive? Using an HList?
 // TODO Pretty-printing of DataFrame
+
+// Helper function for filter_map (filters out nulls)
+pub(crate) fn id<T>(v: T) -> T {
+    v
+}
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataFrame {
@@ -456,6 +463,7 @@ impl_column_from_collection!(Float, Float);
 pub struct Describe {
     // TODO Quartiles?
     pub len: usize,
+    pub null_count: usize,
     pub min: f64,
     pub max: f64,
     pub mean: f64,
@@ -473,14 +481,16 @@ impl Mask {
         self.mask.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Bool> {
-        self.mask.iter()
+    pub fn iter(&self) -> impl Iterator<Item = Option<Bool>> + '_ {
+        self.mask.iter().map(|b| b.cloned())
     }
 }
 
 impl From<Collection<bool>> for Mask {
     fn from(mask: Collection<bool>) -> Self {
-        let true_count = mask.iter().fold(0, |acc, &v| if v { acc + 1 } else { acc });
+        let true_count = mask
+            .iter()
+            .fold(0, |acc, v| if *v.unwrap_or(&false) { acc + 1 } else { acc });
         Mask { mask, true_count }
     }
 }

@@ -1,6 +1,7 @@
 pub use frame_alias::*;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use id;
 
 use {Collection, Mask, Result};
 
@@ -42,6 +43,7 @@ impl<H: HList> Frame<H> {
     }
 
     // TODO: alternative would be to explicitly pass the token
+    // TODO: what would be nicer is a `setcol` func which either adds or modifies
     pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
         Col: ColId,
@@ -426,6 +428,8 @@ where
     H: HList,
     G: HList,
 {
+    // TODO Accumulate WITHOUT nulls
+    // Also need an acc WITH nulls
     pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
     where
         Col: ColId,
@@ -435,12 +439,13 @@ where
     {
         let res: Vec<NewCol::Output> = {
             let grouped_col = self.frame.get::<Col, _>();
-            let col_data = grouped_col.data();
             self.grouping_index
                 .iter()
                 .map(|grp| {
                     // TODO could this be done with an iterator instead of allocating a vec?
-                    let to_acc: Vec<_> = grp.iter().map(|&ix| &col_data[ix]).collect();
+                    let to_acc: Vec<&Col::Output> = grouped_col.iterate_indices(grp.iter().cloned())
+                        .filter_map(id)
+                        .collect();
                     func(&to_acc)
                 }).collect()
         };
@@ -630,7 +635,7 @@ mod tests {
     #[test]
     fn test_map_replace() {
         let f = quickframe();
-        let f2 = f.map_replace::<FloatT, FloatT, _, _>(|&v| v * v );
+        let f2 = f.map_replace::<FloatT, FloatT, _, _>(|&v| v * v);
         assert_eq!(f2.get::<FloatT, _>(), &[25., 16., 9., 4.]);
     }
 }
