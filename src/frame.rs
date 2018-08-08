@@ -152,9 +152,37 @@ where
         leftframe.concat(rightframe).unwrap()
     }
 
+    pub fn left_join<LCol, RCol, Oth, LIx, RIx>(
+        self,
+        other: &Frame<Oth>,
+    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    where
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
+        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        LCol: ColId,
+        LCol::Output: Eq + Clone + Hash,
+        RCol: ColId<Output = LCol::Output>,
+        H: Selector<LCol, LIx>,
+    {
+        let left = self.get::<LCol, _>();
+        let right = other.get::<RCol, _>();
+        let (leftixs, rightixs) = left.left_join_locs(right);
+        let leftframe = self.copy_locs(&leftixs);
+        let rightframe = other.copy_locs_opt(&rightixs);
+        let (_, rightframe) = rightframe.extract::<RCol, _>();
+        leftframe.concat(rightframe).unwrap()
+    }
+
     fn copy_locs(&self, locs: &[usize]) -> Frame<H> {
         Frame {
             hlist: self.hlist.copy_locs(locs),
+            len: locs.len(),
+        }
+    }
+
+    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Frame<H> {
+        Frame {
+            hlist: self.hlist.copy_locs_opt(locs),
             len: locs.len(),
         }
     }
@@ -237,6 +265,10 @@ impl HListExt for HNil {
         HNil
     }
 
+    fn copy_locs_opt(&self, _: &[Option<usize>]) -> Self {
+        HNil
+    }
+
     fn filter_mask(&self, _mask: &Mask) -> Self {
         HNil
     }
@@ -271,6 +303,7 @@ where
 
 pub trait HListExt {
     fn copy_locs(&self, locs: &[usize]) -> Self;
+    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self;
     fn filter_mask(&self, mask: &Mask) -> Self;
 }
 
@@ -284,6 +317,13 @@ where
         HCons {
             head: self.head.copy_locs(locs),
             tail: self.tail.copy_locs(locs),
+        }
+    }
+
+    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self {
+        HCons {
+            head: self.head.copy_locs_opt(locs),
+            tail: self.tail.copy_locs_opt(locs),
         }
     }
 
@@ -586,14 +626,52 @@ mod tests {
 
     #[test]
     fn test_inner_join() -> Result<()> {
+        // TODO parse a text string once reading csvs is implemented
         let f1 = quickframe();
         let f2: Frame2<IntT2, BoolT> = Frame::new()
-            .addcol(vec![3, 2, 4, 2, 1])?
-            .addcol(vec![true, false, true, true, false])?;
+            .addcol(Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(false), Some(true), Some(false)].into_iter(),
+            ))?;
         let f3: Frame4<IntT, FloatT, StringT, BoolT> = f1.inner_join::<IntT, IntT2, _, _, _>(&f2);
-        assert_eq!(f3.get::<IntT, _>(), &[1, 2, 2, 3, 4]);
-        // TODO: Note sure this ordering can be relied upon
-        assert_eq!(f3.get::<BoolT, _>(), &[false, false, true, true, true]);
+        assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
+        assert_eq!(
+            f3.get::<BoolT, _>(),
+            &Collection::new_opt(vec![Some(true), Some(false), None].into_iter())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_left_join() -> Result<()> {
+        let f1: Frame2<IntT, FloatT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(5.), Some(4.), Some(3.)].into_iter(),
+            ))?;
+
+        let f2: Frame2<IntT, BoolT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(2), Some(2), None, Some(1), Some(3)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(false), Some(true), Some(false), None].into_iter(),
+            ))?;
+
+        let f3: Frame3<IntT, FloatT, BoolT> = f1.left_join::<IntT, IntT, _, _, _>(&f2);
+        assert_eq!(
+            f3.get::<IntT, _>(),
+            &Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)].into_iter()
+            )
+        );
+        assert_eq!(
+            f3.get::<BoolT, _>(),
+            &Collection::new_opt(
+                vec![None, None, None, Some(false), None, Some(false)].into_iter()
+            )
+        );
         Ok(())
     }
 

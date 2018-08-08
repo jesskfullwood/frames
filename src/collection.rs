@@ -23,6 +23,9 @@ impl<T> From<Array<T>> for Collection<T> {
 impl<T: PartialEq> PartialEq for Collection<T> {
     // We don't care if the indexes are the same
     fn eq(&self, other: &Self) -> Bool {
+        if self.len() != other.len() {
+            return false;
+        }
         self.iter()
             .zip(other.iter())
             .all(|(left, right)| match (left, right) {
@@ -190,6 +193,19 @@ impl<T: Clone> Collection<T> {
         Collection::new_opt(locs.iter().map(|&ix| self.get(ix).cloned()))
     }
 
+    /// Create new Collection taking values from provided slice of indices,
+    /// possibly interjecting nulls
+    /// This function is mainly useful for joins
+    pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Collection<T> {
+        Collection::new_opt(locs.iter().map(|&ix| {
+            if let Some(ix) = ix {
+                self.get(ix).cloned()
+            } else {
+                None
+            }
+        }))
+    }
+
     // TODO This basically exists to help with doing group-bys
     // might be a way to do things faster/more cleanly
     // It is guaranteed that each Vec<usize> is nonempty
@@ -237,29 +253,55 @@ impl<T: Hash + Clone + Eq> Collection<T> {
     }
 
     pub(crate) fn inner_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<usize>) {
-        // TODO if "other" is already indexed, we can skip this step
-        self.build_index();
+        other.build_index();
 
-        let borrow = self.0.index.borrow();
-        let colix = borrow.as_ref().unwrap();
-        let mut pair: Vec<(usize, usize)> = Vec::new();
-        for (rix, val) in other
-            .iter()
+        let rborrow = other.0.index.borrow();
+        let rindex = rborrow.as_ref().unwrap();
+        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        let mut rightout = Vec::with_capacity(self.len());
+        self.iter()
             .enumerate()
-            .filter_map(|(ix, d)| d.map(|d| (ix, d)))
-        {
-            if let Some(lixs) = colix.get(val) {
-                lixs.iter().for_each(|&lix| pair.push((lix, rix)))
+            .filter_map(|(ix, lval)| lval.map(|d| (ix, d)))
+            .for_each(|(lix, lval)| {
+                if let Some(rixs) = rindex.get(lval) {
+                    // We have found a join
+                    rixs.iter().for_each(|&rix| {
+                        leftout.push(lix);
+                        rightout.push(rix);
+                    })
+                }
+            });
+        (leftout, rightout)
+    }
+
+    pub(crate) fn left_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<Option<usize>>) {
+        other.build_index();
+        let rborrow = other.0.index.borrow();
+        let rindex = rborrow.as_ref().unwrap();
+        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        let mut rightout = Vec::with_capacity(self.len());
+
+        for (lix, lvalo) in self.iter().enumerate() {
+            if let Some(lval) = lvalo {
+                if let Some(rixs) = rindex.get(lval) {
+                    // we have a join
+                    rixs.iter().for_each(|&rix| {
+                        leftout.push(lix);
+                        rightout.push(Some(rix));
+                    })
+                } else {
+                    // we have no join
+                    leftout.push(lix);
+                    rightout.push(None);
+                }
+            } else {
+                // we have a null
+                leftout.push(lix);
+                rightout.push(None);
             }
         }
-        pair.sort_unstable();
-        let mut left = Vec::with_capacity(pair.len());
-        let mut right = Vec::with_capacity(pair.len());
-        pair.iter().for_each(|&(l, r)| {
-            left.push(l);
-            right.push(r);
-        });
-        (left, right)
+        assert_eq!(leftout.len(), rightout.len());
+        (leftout, rightout)
     }
 
     pub(crate) fn index_values(&self) -> Vec<Vec<usize>> {
