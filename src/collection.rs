@@ -145,17 +145,22 @@ impl<T: Sized> Collection<T> {
             .filter_map(|(isvalid, v)| if isvalid { Some(v) } else { None })
     }
 
-    pub fn map<R>(&self, test: impl Fn(&T) -> R) -> Collection<R> {
+    // TODO this is underused
+    pub fn map<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Collection<R> {
+        Collection::new_opt(self.iter().map(|v| func(v)))
+    }
+
+    pub fn map_notnull<R>(&self, func: impl Fn(&T) -> R) -> Collection<R> {
         Collection::new_opt(self.iter().map(|v| {
             match v {
-                Some(v) => Some(test(v)), // v.map(test) doesn't work for some reason
+                Some(v) => Some(func(v)), // v.map(test) doesn't work for some reason
                 None => None,
             }
         }))
     }
 
     pub fn mask(&self, test: impl Fn(&T) -> bool) -> Mask {
-        let mask = self.map(test);
+        let mask = self.map_notnull(test);
         mask.into()
     }
 
@@ -271,6 +276,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
                     })
                 }
             });
+        assert_eq!(leftout.len(), rightout.len());
         (leftout, rightout)
     }
 
@@ -300,6 +306,74 @@ impl<T: Hash + Clone + Eq> Collection<T> {
                 rightout.push(None);
             }
         }
+        assert_eq!(leftout.len(), rightout.len());
+        (leftout, rightout)
+    }
+
+    pub(crate) fn outer_join_locs(
+        &self,
+        other: &Collection<T>,
+    ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
+        self.build_index();
+        other.build_index();
+        let lborrow = self.0.index.borrow();
+        let lindex = lborrow.as_ref().unwrap();
+        let rborrow = other.0.index.borrow();
+        let rindex = rborrow.as_ref().unwrap();
+        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        let mut rightout = Vec::with_capacity(self.len());
+
+        for (lix, lvalo) in self.iter().enumerate() {
+            match lvalo {
+                None => {
+                    // Left value is null, so no joins
+                    leftout.push(Some(lix));
+                    rightout.push(None);
+                }
+                Some(lval) => {
+                    let lixs = lindex.get(lval).unwrap();
+                    match rindex.get(lval) {
+                        None => {
+                            // No join
+                            leftout.push(Some(lix));
+                            rightout.push(None);
+                        }
+                        Some(rixs) => {
+                            // we have a join. Push each permutation of indexes
+                            lixs.iter().for_each(|&lix| {
+                                rixs.iter().for_each(|&rix| {
+                                    leftout.push(Some(lix));
+                                    rightout.push(Some(rix));
+                                })
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        for (rix, rvalo) in other.iter().enumerate() {
+            match rvalo {
+                None => {
+                    // Right value is null, add to output
+                    leftout.push(None);
+                    rightout.push(Some(rix));
+                }
+                Some(rval) => {
+                    match lindex.get(rval) {
+                        None => {
+                            // No join, add in right index
+                            leftout.push(None);
+                            rightout.push(Some(rix));
+                        }
+                        Some(_) => {
+                            // we have a join, so there is nothing to be done
+                            // the second time round
+                        }
+                    }
+                }
+            }
+        }
+        // Finally add in all the nulls from 'other', since they have been missed
         assert_eq!(leftout.len(), rightout.len());
         (leftout, rightout)
     }
@@ -393,10 +467,10 @@ fn test_build_with_nulls() {
     let vals: Vec<Option<u32>> = c.iter().map(|v| v.cloned()).collect();
     assert_eq!(vals, vec![Some(0), None, Some(2), None, Some(4)]);
 
-    let c2 = c.map(|v| *v);
+    let c2 = c.map_notnull(|v| *v);
     assert_eq!(c, c2);
 
-    let c3 = c.map(|v| v * v);
+    let c3 = c.map(|v| v.map(|u| u * u));
     let vals: Vec<Option<u32>> = c3.iter().map(|v| v.cloned()).collect();
     assert_eq!(vals, vec![Some(0), None, Some(4), None, Some(16)]);
 }

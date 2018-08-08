@@ -425,7 +425,7 @@ macro_rules! dynamic_map_impl {
             fn map_typed(&self, f: impl Fn(&$raw) -> R) -> Collection<R> {
                 use Column::*;
                 match self {
-                    $enum(c) => c.map(f),
+                    $enum(c) => c.map_notnull(f),
                     _ => panic!("Can't apply function to TODO column"),
                 }
             }

@@ -74,10 +74,26 @@ impl<H: HList> Frame<H> {
         Col: ColId,
         NewCol: ColId,
         H: Mapper<Col, NewCol, Index>,
-        F: Fn(&Col::Output) -> NewCol::Output,
+        F: Fn(Option<&Col::Output>) -> Option<NewCol::Output>,
     {
         Frame {
             hlist: self.hlist.map_replace(func),
+            len: self.len,
+        }
+    }
+
+    pub fn map_replace_notnull<Col, NewCol, Index, F>(
+        self,
+        func: F,
+    ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
+    where
+        Col: ColId,
+        NewCol: ColId,
+        H: Mapper<Col, NewCol, Index>,
+        F: Fn(&Col::Output) -> NewCol::Output,
+    {
+        Frame {
+            hlist: self.hlist.map_replace_notnull(func),
             len: self.len,
         }
     }
@@ -170,6 +186,28 @@ where
         let leftframe = self.copy_locs(&leftixs);
         let rightframe = other.copy_locs_opt(&rightixs);
         let (_, rightframe) = rightframe.extract::<RCol, _>();
+        leftframe.concat(rightframe).unwrap()
+    }
+
+    pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
+        self,
+        other: &Frame<Oth>,
+    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    where
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
+        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        LCol: ColId,
+        LCol::Output: Eq + Clone + Hash,
+        RCol: ColId<Output = LCol::Output>,
+        H: Selector<LCol, LIx>,
+    {
+        let left = self.get::<LCol, _>();
+        let right = other.get::<RCol, _>();
+        let (leftixs, rightixs) = left.outer_join_locs(right);
+        let leftframe = self.copy_locs_opt(&leftixs);
+        let rightframe = other.copy_locs_opt(&rightixs);
+        let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
+        unimplemented!();
         leftframe.concat(rightframe).unwrap()
     }
 
@@ -422,6 +460,10 @@ pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
     type Mapped: HList;
     fn map_replace<F>(self, func: F) -> Self::Mapped
     where
+        F: Fn(Option<&Target::Output>) -> Option<<NewCol as ColId>::Output>;
+
+    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
+    where
         F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
 }
 
@@ -434,10 +476,19 @@ where
     type Mapped = HCons<NewCol, Tail>;
     fn map_replace<F>(self, func: F) -> Self::Mapped
     where
-        F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
+        F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
         HCons {
             head: self.head.map(func),
+            tail: self.tail,
+        }
+    }
+    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
+    where
+        F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
+    {
+        HCons {
+            head: self.head.map_notnull(func),
             tail: self.tail,
         }
     }
@@ -452,13 +503,24 @@ where
     Tail: HList + Mapper<FromTail, NewCol, TailIndex>,
 {
     type Mapped = HCons<Head, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
+
     fn map_replace<F>(self, func: F) -> Self::Mapped
+    where
+        F: Fn(Option<&FromTail::Output>) -> Option<<NewCol as ColId>::Output>,
+    {
+        HCons {
+            head: self.head,
+            tail: self.tail.map_replace(func),
+        }
+    }
+
+    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(&FromTail::Output) -> <NewCol as ColId>::Output,
     {
         HCons {
             head: self.head,
-            tail: self.tail.map_replace(func),
+            tail: self.tail.map_replace_notnull(func),
         }
     }
 }
@@ -534,7 +596,6 @@ mod tests {
     use super::*;
 
     define_col!(IntT, i64);
-    define_col!(IntT2, i64);
     define_col!(StringT, String);
     define_col!(FloatT, f64);
     define_col!(BoolT, bool);
@@ -625,57 +686,6 @@ mod tests {
     }
 
     #[test]
-    fn test_inner_join() -> Result<()> {
-        // TODO parse a text string once reading csvs is implemented
-        let f1 = quickframe();
-        let f2: Frame2<IntT2, BoolT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(false), Some(true), Some(false)].into_iter(),
-            ))?;
-        let f3: Frame4<IntT, FloatT, StringT, BoolT> = f1.inner_join::<IntT, IntT2, _, _, _>(&f2);
-        assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
-        assert_eq!(
-            f3.get::<BoolT, _>(),
-            &Collection::new_opt(vec![Some(true), Some(false), None].into_iter())
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_left_join() -> Result<()> {
-        let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(5.), Some(4.), Some(3.)].into_iter(),
-            ))?;
-
-        let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(2), Some(2), None, Some(1), Some(3)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(false), Some(true), Some(false), None].into_iter(),
-            ))?;
-
-        let f3: Frame3<IntT, FloatT, BoolT> = f1.left_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(
-            f3.get::<IntT, _>(),
-            &Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)].into_iter()
-            )
-        );
-        assert_eq!(
-            f3.get::<BoolT, _>(),
-            &Collection::new_opt(
-                vec![None, None, None, Some(false), None, Some(false)].into_iter()
-            )
-        );
-        Ok(())
-    }
-
-    #[test]
     fn test_mask() -> Result<()> {
         let f = quickframe();
         // TODO document - keep if true or discard-if-true? At moment it's keep-if-true
@@ -720,7 +730,95 @@ mod tests {
     #[test]
     fn test_map_replace() {
         let f = quickframe();
-        let f2 = f.map_replace::<FloatT, FloatT, _, _>(|&v| v * v);
+        let f2 = f.map_replace_notnull::<FloatT, FloatT, _, _>(|&v| v * v);
         assert_eq!(f2.get::<FloatT, _>(), &[25., 16., 9., 4.]);
+    }
+
+    #[test]
+    fn test_inner_join() -> Result<()> {
+        // TODO parse a text string once reading csvs is implemented
+        let f1 = quickframe();
+        let f2: Frame2<IntT, BoolT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(false), Some(true), Some(false)].into_iter(),
+            ))?;
+        let f3 = f1.inner_join::<IntT, IntT, _, _, _>(&f2);
+        assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
+        assert_eq!(
+            f3.get::<BoolT, _>(),
+            &Collection::new_opt(vec![Some(true), Some(false), None].into_iter())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_left_join() -> Result<()> {
+        let f1: Frame2<IntT, FloatT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(5.), Some(4.), Some(3.)].into_iter(),
+            ))?;
+
+        let f2: Frame2<IntT, BoolT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(2), Some(2), None, Some(1), Some(3)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![None, Some(false), Some(true), Some(false), None].into_iter(),
+            ))?;
+
+        let f3 = f1.left_join::<IntT, IntT, _, _, _>(&f2);
+        assert_eq!(
+            f3.get::<IntT, _>(),
+            &Collection::new_opt(
+                vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)].into_iter()
+            )
+        );
+        assert_eq!(
+            f3.get::<BoolT, _>(),
+            &Collection::new_opt(
+                vec![None, None, None, Some(false), None, Some(false)].into_iter()
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_outer_join_nones() -> Result<()> {
+        let f1: Frame1<IntT> = Frame::new().addcol(Collection::new_opt(vec![None].into_iter()))?;
+        let f2: Frame1<IntT> =
+            Frame::new().addcol(Collection::new_opt(vec![None, None].into_iter()))?;
+        let f3 = f1.outer_join(&f2);
+        assert_eq!(
+            f3.get(),
+            &Collection::new_opt(vec![None, None, None].into_iter())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_outer_join() -> Result<()> {
+        let f1: Frame2<IntT, FloatT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![Some(3), None, Some(2), None].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![Some(1.), Some(2.), None, Some(3.)].into_iter(),
+            ))?;
+        let f2: Frame2<IntT, BoolT> = Frame::new()
+            .addcol(Collection::new_opt(
+                vec![None, Some(3), Some(3), Some(2), Some(5)].into_iter(),
+            ))?.addcol(Collection::new_opt(
+                vec![Some(true), None, Some(false), Some(true), None].into_iter(),
+            ))?;
+        let f3 = f1.outer_join::<IntT, IntT, _, _, _>(&f2);
+        assert_eq!(
+            f3.get::<IntT, _>(),
+            &Collection::new_opt(
+                vec![Some(3), Some(3), None, Some(2), None, None, Some(5)].into_iter()
+            )
+        );
+        Ok(())
     }
 }
