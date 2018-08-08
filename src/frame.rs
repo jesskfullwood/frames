@@ -9,6 +9,8 @@ use {Collection, Mask, Result};
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 // for details. (In fact, that implementation is much more complete)
 
+// TODO tag everything with #[must_use]
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     hlist: H,
@@ -64,6 +66,13 @@ impl<H: HList> Frame<H> {
                 hlist: self.hlist.addcol(coll),
             })
         }
+    }
+
+    pub fn replace<Col: ColId, Index>(&mut self, newcol: Collection<Col::Output>)
+    where
+        H: Replace<Col, Index>,
+    {
+        self.hlist.replace(newcol)
     }
 
     pub fn map_replace<Col, NewCol, Index, F>(
@@ -199,15 +208,24 @@ where
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<LCol, LIx>,
+        H: Selector<LCol, LIx> + Replace<LCol, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
         let (leftixs, rightixs) = left.outer_join_locs(right);
-        let leftframe = self.copy_locs_opt(&leftixs);
+        let mut leftframe = self.copy_locs_opt(&leftixs);
         let rightframe = other.copy_locs_opt(&rightixs);
         let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
-        unimplemented!();
+        let joined = {
+            let ljoined = leftframe.get::<LCol, _>();
+            Collection::new_opt(
+                ljoined
+                    .iter()
+                    .zip(rjoined.iter())
+                    .map(|(left, right)| left.or(right).cloned()),
+            )
+        };
+        leftframe.replace(joined);
         leftframe.concat(rightframe).unwrap()
     }
 
@@ -456,6 +474,31 @@ where
     }
 }
 
+pub trait Replace<Target: ColId, Index> {
+    fn replace(&mut self, newcol: Collection<Target::Output>);
+}
+
+impl<Head, Tail> Replace<Head, Here> for HCons<Head, Tail>
+where
+    Head: ColId,
+    Tail: HList,
+{
+    fn replace(&mut self, newcol: Collection<Head::Output>) {
+        self.head = newcol;
+    }
+}
+
+impl<Head, Tail, FromTail, TailIndex> Replace<FromTail, There<TailIndex>> for HCons<Head, Tail>
+where
+    Head: ColId,
+    FromTail: ColId,
+    Tail: HList + Replace<FromTail, TailIndex>,
+{
+    fn replace(&mut self, newcol: Collection<FromTail::Output>) {
+        self.tail.replace(newcol)
+    }
+}
+
 pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
     type Mapped: HList;
     fn map_replace<F>(self, func: F) -> Self::Mapped
@@ -467,7 +510,7 @@ pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
         F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
 }
 
-impl<Head: ColId, Tail: HList, NewCol> Mapper<Head, NewCol, Here> for HCons<Head, Tail>
+impl<Head, Tail, NewCol> Mapper<Head, NewCol, Here> for HCons<Head, Tail>
 where
     Head: ColId,
     NewCol: ColId,
@@ -483,6 +526,7 @@ where
             tail: self.tail,
         }
     }
+
     fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
