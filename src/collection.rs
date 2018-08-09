@@ -1,22 +1,45 @@
 use bit_vec::BitVec;
+
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use std::sync::Arc;
 
-use *;
+use *; // TODO import only what's needed
 
 #[derive(Clone)]
 pub struct Collection<T>(Arc<CollectionInner<T>>);
 
 #[derive(Clone)]
 struct CollectionInner<T> {
-    data: Array<T>,
+    data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
     index: RefCell<Option<IndexMap<T>>>,
 }
 
+impl<T> Drop for CollectionInner<T> {
+    fn drop(&mut self) {
+        self.data
+            .iter_mut()
+            .zip(self.null_vec.iter())
+            .for_each(|(val, notnull)| {
+                if notnull {
+                    unsafe { ManuallyDrop::drop(val) }
+                }
+                // else val is actually just zeroed memory so don't drop
+            })
+    }
+}
+
 impl<T> From<Array<T>> for Collection<T> {
     fn from(arr: Array<T>) -> Collection<T> {
         Collection::new(arr)
+    }
+}
+
+impl<T> From<Vec<T>> for Collection<T> {
+    fn from(vec: Vec<T>) -> Collection<T> {
+        Collection::new(Array::new(vec))
     }
 }
 
@@ -57,8 +80,9 @@ impl<T: Debug> Debug for Collection<T> {
 }
 
 impl<T: Sized> Collection<T> {
-    pub fn new(data: Array<T>) -> Collection<T> {
-        // We assume that all values are initially valid
+    pub(crate) fn new(data: Array<T>) -> Collection<T> {
+        // ManuallyDrop is a zero-cost wrapper so this should be safe
+        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
         Collection(Arc::new(CollectionInner {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
@@ -75,22 +99,21 @@ impl<T: Sized> Collection<T> {
             match v {
                 Some(v) => {
                     null_vec.push(true);
-                    data.push(v);
+                    data.push(ManuallyDrop::new(v));
                 }
                 None => {
                     null_vec.push(false);
                     null_count += 1;
                     // TODO this is UB when we try to DROP it, will probably segfault
-
                     let scary: T = unsafe { ::std::mem::zeroed() };
-                    data.push(scary)
+                    data.push(ManuallyDrop::new(scary))
                 }
             }
         }
         Collection(Arc::new(CollectionInner {
             null_count,
             null_vec,
-            data,
+            data: Array::new(data),
             index: RefCell::new(None),
         }))
     }
@@ -126,15 +149,11 @@ impl<T: Sized> Collection<T> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Option<&T>> + '_ {
-        self.0.null_vec.iter().zip(self.0.data.iter()).map(
-            |(isvalid, v)| {
-                if isvalid {
-                    Some(v)
-                } else {
-                    None
-                }
-            },
-        )
+        self.0
+            .null_vec
+            .iter()
+            .zip(self.0.data.iter())
+            .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
     pub fn iter_non_null(&self) -> impl Iterator<Item = &T> + '_ {
@@ -142,7 +161,7 @@ impl<T: Sized> Collection<T> {
             .null_vec
             .iter()
             .zip(self.0.data.iter())
-            .filter_map(|(isvalid, v)| if isvalid { Some(v) } else { None })
+            .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
     // TODO this is underused
@@ -170,7 +189,7 @@ impl<T: Sized> Collection<T> {
     ) -> impl Iterator<Item = Option<&T>> {
         let data = &self.0.data;
         let nulls = &self.0.null_vec;
-        iter.map(move |ix| if nulls[ix] { Some(&data[ix]) } else { None })
+        iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
     }
 }
 
@@ -222,7 +241,7 @@ impl<T: Clone> Collection<T> {
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().clone()
             }).collect();
-        Collection::new(data)
+        Collection::new(Array::new(data))
     }
 
     // Filter collection from mask. Nulls are considered equivalent to false

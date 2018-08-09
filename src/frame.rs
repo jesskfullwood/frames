@@ -50,7 +50,7 @@ impl<H: HList> Frame<H> {
         Selector::get(&self.hlist)
     }
 
-    // TODO: alternative would be to explicitly pass the token
+    // TODO: alternative would be to explicitly pass the Col token
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
     pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
@@ -776,6 +776,24 @@ mod tests {
         let f = quickframe();
         let f2 = f.map_replace_notnull::<FloatT, FloatT, _, _>(|&v| v * v);
         assert_eq!(f2.get::<FloatT, _>(), &[25., 16., 9., 4.]);
+    }
+
+    #[test]
+    fn test_safely_drop() {
+        use std::sync::Arc;
+        define_col!(Arcs, Arc<u64>);
+        // contains no nulls
+        let _f0: Frame1<Arcs> = Frame::new()
+            .addcol(Collection::from(vec![Arc::new(10), Arc::new(20)]))
+            .unwrap();
+        // contains nulls -> segfaults!
+        let coll = Collection::new_opt(vec![Some(Arc::new(1)), None].into_iter());
+        // let f1: Frame1<Arcs> = Frame::new()
+        //     .addcol(Collection::new_opt(
+        //         vec![None, None, None, Some(Arc::new(1))].into_iter(),
+        //     )).unwrap();
+        // ::std::mem::forget(f1);
+        // let f2 = f1.clone();
     }
 
     #[test]

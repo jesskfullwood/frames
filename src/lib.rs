@@ -28,7 +28,6 @@ pub mod io;
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
 type IndexMap<T> = HashMap<T, Vec<usize>>;
-pub(crate) type Array<T> = Vec<T>;
 pub(crate) type Float = f64;
 pub(crate) type Bool = bool;
 pub(crate) type OrdFloat = OrderedFloat<f64>;
@@ -40,6 +39,39 @@ pub(crate) type Int = i64;
 // Helper function for filter_map (filters out nulls)
 pub(crate) fn id<T>(v: T) -> T {
     v
+}
+
+/// NewType wrapper around Vec
+#[derive(Debug, Clone)]
+struct Array<T>(Vec<T>);
+
+impl<T> Array<T> {
+    #[inline]
+    fn new(data: Vec<T>) -> Self {
+        Array(data)
+    }
+
+    #[inline]
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.0.iter()
+    }
+
+    #[inline]
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.0.iter_mut()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<T> Index<usize> for Array<T> {
+    type Output = T;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -445,6 +477,12 @@ macro_rules! impl_column_from_array {
                 Column::$fromenum(Collection::new(arr))
             }
         }
+
+        impl From<Vec<$fromty>> for Column {
+            fn from(vec: Vec<$fromty>) -> Column {
+                Column::$fromenum(Collection::new(Array::new(vec)))
+            }
+        }
     };
 }
 
@@ -513,7 +551,7 @@ mod test {
         let mut df = DataFrame::from(("c1", vec![1, 2, 3, 4, 5]));
         df.setcol("c1", vec![1, 2, 3, 4, 5]).unwrap();
         df.setcol("c2", vec![2., 3., 4., 5., 6.]).unwrap();
-        let col3 = Column::from(Collection::new(vec![true, true, false, true, false]));
+        let col3 = Column::from(Collection::from(vec![true, true, false, true, false]));
         df.setcol("c3", col3).unwrap();
         let words: Vec<_> = "a b c d e".split(' ').map(String::from).collect();
         df.setcol("c4", words).unwrap();
