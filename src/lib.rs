@@ -8,7 +8,7 @@ extern crate num;
 extern crate ordered_float;
 
 use std::cell::RefCell;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Index;

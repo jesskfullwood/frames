@@ -15,7 +15,7 @@ pub trait ColId {
     type Output;
 }
 
-// *** Frame ***
+// ### Frame ###
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
@@ -305,6 +305,29 @@ impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
     }
 }
 
+impl<'a, H> Frame<H>
+where
+    Self: Flatten<'a>,
+    H: HList + RowTuple<'a, Tuple = <Self as Flatten<'a>>::Nested>,
+{
+    pub fn get_row(&'a self, index: usize) -> Option<<Self as Flatten>::Flattened> {
+        if index >= self.len() {
+            return None;
+        }
+        let nested = self.hlist.get_tuple(index);
+        Some(Self::unnest(nested))
+    }
+
+    pub fn iter_rows(&'a self) -> impl Iterator<Item = <Self as Flatten>::Flattened> {
+        IterRows {
+            frame: &self,
+            index: 0,
+        }
+    }
+}
+
+// ### HList struct defs ###
+
 #[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct HNil;
 
@@ -314,7 +337,15 @@ pub struct HCons<H: ColId, T> {
     pub tail: T,
 }
 
-// *** HList ***
+pub struct Here {
+    _priv: (),
+}
+
+pub struct There<T> {
+    _marker: PhantomData<T>,
+}
+
+// ### HList ###
 
 pub trait HList: Sized {
     const SIZE: usize;
@@ -347,7 +378,7 @@ where
     const IS_ROOT: bool = false;
 }
 
-// *** HListExt ***
+// ### HListExt ###
 
 pub trait HListExt: HList {
     fn copy_locs(&self, locs: &[usize]) -> Self;
@@ -397,7 +428,7 @@ impl HListExt for HNil {
     }
 }
 
-// *** Concat ***
+// ### Concat ###
 
 pub trait Concat<C> {
     type Combined: HList;
@@ -425,7 +456,7 @@ where
     }
 }
 
-// *** Selector ***
+// ### Selector ###
 
 pub trait Selector<S: ColId, Index> {
     fn get(&self) -> &Collection<S::Output>;
@@ -448,7 +479,7 @@ where
     }
 }
 
-// *** Extractor ***
+// ### Extractor ###
 
 pub trait Extractor<Target: ColId, Index> {
     type Remainder: HList;
@@ -486,7 +517,7 @@ where
     }
 }
 
-// *** Replacer ***
+// ### Replacer ###
 
 pub trait Replacer<Target: ColId, Index> {
     fn replace(&mut self, newcol: Collection<Target::Output>);
@@ -513,7 +544,7 @@ where
     }
 }
 
-// *** Mapper ***
+// ### Mapper ###
 
 pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
     type Mapped: HList;
@@ -585,6 +616,8 @@ where
     }
 }
 
+// ### GroupBy ###
+
 pub struct GroupBy<H: HList, G: HList> {
     frame: Frame<H>,
     grouping_index: Vec<Vec<usize>>,
@@ -631,12 +664,86 @@ where
     }
 }
 
-pub struct Here {
-    _priv: (),
+// ### RowTuple ###
+
+pub trait RowTuple<'a> {
+    type Tuple;
+    fn get_tuple(&'a self, index: usize) -> Self::Tuple;
 }
 
-pub struct There<T> {
-    _marker: PhantomData<T>,
+impl<'a, Head, Tail> RowTuple<'a> for HCons<Head, Tail>
+where
+    Head: ColId,
+    Head::Output: 'a,
+    Tail: RowTuple<'a>,
+{
+    type Tuple = (Option<&'a Head::Output>, Tail::Tuple);
+    fn get_tuple(&'a self, index: usize) -> Self::Tuple {
+        (self.head.get(index).unwrap(), self.tail.get_tuple(index))
+    }
+}
+
+impl<'a> RowTuple<'a> for HNil {
+    type Tuple = ();
+    fn get_tuple(&'a self, _index: usize) -> Self::Tuple {
+        ()
+    }
+}
+
+// ### Flatten ###
+
+pub trait Flatten<'a> {
+    type Nested;
+    type Flattened;
+    fn unnest(nested: Self::Nested) -> Self::Flattened;
+}
+
+// TODO Implement this in a macro for all (many) frames
+impl<'a, T1, T2, T3> Flatten<'a> for Frame3<T1, T2, T3>
+where
+    T1: ColId + 'a,
+    T2: ColId + 'a,
+    T3: ColId + 'a,
+{
+    type Nested = (
+        Option<&'a <T3 as ColId>::Output>,
+        (
+            Option<&'a <T2 as ColId>::Output>,
+            (Option<&'a <T1 as ColId>::Output>, ()),
+        ),
+    );
+    type Flattened = (
+        Option<&'a <T1 as ColId>::Output>,
+        Option<&'a <T2 as ColId>::Output>,
+        Option<&'a <T3 as ColId>::Output>,
+    );
+
+    fn unnest(nested: Self::Nested) -> Self::Flattened {
+        let (opt3, (opt2, (opt1, ()))) = nested;
+        (opt1, opt2, opt3)
+    }
+}
+
+struct IterRows<'a, H: HList + 'a> {
+    frame: &'a Frame<H>,
+    index: usize,
+}
+
+impl<'a, H> Iterator for IterRows<'a, H>
+where
+    H: HList + RowTuple<'a, Tuple = <Frame<H> as Flatten<'a>>::Nested>,
+    Frame<H>: Flatten<'a>,
+{
+    type Item = <Frame<H> as Flatten<'a>>::Flattened;
+    fn next(&mut self) -> Option<Self::Item> {
+        match (*self.frame).get_row(self.index) {
+            Some(r) => {
+                self.index += 1;
+                Some(r)
+            }
+            None => None,
+        }
+    }
 }
 
 #[macro_export]
@@ -796,8 +903,8 @@ mod tests {
 
     #[test]
     fn test_safely_drop() {
-        use std::sync::Arc;
         use std::rc::Rc;
+        use std::sync::Arc;
         define_col!(Arcs, Arc<u64>);
         define_col!(Rcs, Rc<u64>);
         // contains no nulls
@@ -900,5 +1007,24 @@ mod tests {
             )
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_iter_rows() {
+        let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
+            .addcol(vec![1, 2])
+            .unwrap()
+            .addcol(vec![5., 4.])
+            .unwrap()
+            .addcol(vec![false, true])
+            .unwrap();
+        let rows: Vec<(Option<&i64>, Option<&f64>, Option<&bool>)> = f.iter_rows().collect();
+        assert_eq!(
+            rows,
+            vec![
+                (Some(&1), Some(&5.), Some(&false)),
+                (Some(&2), Some(&4.), Some(&true))
+            ]
+        );
     }
 }

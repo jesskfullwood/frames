@@ -140,13 +140,13 @@ impl<T: Sized> Collection<T> {
         self.0.index.borrow().is_some()
     }
 
-    /// Returns wrapped value, or None is null
-    /// Panics if ix is out of bounds
-    pub fn get(&self, ix: usize) -> Option<&T> {
-        if self.0.null_vec[ix] {
-            Some(&self.0.data[ix])
-        } else {
-            None
+    /// Returns wrapped value, or None if null,
+    /// wrapped in bounds-check
+    pub fn get(&self, ix: usize) -> Option<Option<&T>> {
+        match self.0.null_vec.get(ix) {
+            None => None, // out of bounds
+            Some(true) => Some(Some(&self.0.data[ix])),
+            Some(false) => Some(None),
         }
     }
 
@@ -216,7 +216,7 @@ where
 impl<T: Clone> Collection<T> {
     /// Create new Collection taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
-        Collection::new_opt(locs.iter().map(|&ix| self.get(ix).cloned()))
+        Collection::new_opt(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
     }
 
     /// Create new Collection taking values from provided slice of indices,
@@ -225,7 +225,7 @@ impl<T: Clone> Collection<T> {
     pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Collection<T> {
         Collection::new_opt(locs.iter().map(|&ix| {
             if let Some(ix) = ix {
-                self.get(ix).cloned()
+                self.get(ix).unwrap().cloned()
             } else {
                 None
             }
@@ -241,7 +241,7 @@ impl<T: Clone> Collection<T> {
             .map(|inner| {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
-                self.get(first).unwrap().clone()
+                self.get(first).unwrap().unwrap().clone()
             }).collect();
         Collection::new(Array::new(data))
     }
