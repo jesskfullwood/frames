@@ -47,8 +47,11 @@ impl<H: HList> Frame<H> {
         H::SIZE
     }
 
-    pub fn names(&self) -> Vec<&'static str> {
-        unimplemented!();
+    pub fn names(&self) -> Vec<&'static str>
+    where
+        H: HListExt,
+    {
+        self.hlist.get_names()
     }
 
     #[inline]
@@ -164,14 +167,14 @@ impl<H: HList> Frame<H> {
 
 impl<H> Frame<H>
 where
-    H: HListExt,
+    H: HListClonable,
 {
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
     ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
         <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
@@ -192,7 +195,7 @@ where
         other: &Frame<Oth>,
     ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
         <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
@@ -213,7 +216,7 @@ where
         other: &Frame<Oth>,
     ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListExt,
+        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
         <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
@@ -385,16 +388,40 @@ where
 // ### HListExt ###
 
 pub trait HListExt: HList {
-    fn copy_locs(&self, locs: &[usize]) -> Self;
-    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self;
-    fn filter_mask(&self, mask: &Mask) -> Self;
+    fn get_names(&self) -> Vec<&'static str>;
 }
 
 impl<Head, Tail> HListExt for HCons<Head, Tail>
 where
     Head: ColId,
-    Head::Output: Clone,
     Tail: HListExt,
+{
+    fn get_names(&self) -> Vec<&'static str> {
+        let mut ret = self.tail.get_names();
+        ret.push(Head::NAME);
+        ret
+    }
+}
+
+impl HListExt for HNil {
+    fn get_names(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+}
+
+// ### HListClonable ###
+
+pub trait HListClonable: HList {
+    fn copy_locs(&self, locs: &[usize]) -> Self;
+    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self;
+    fn filter_mask(&self, mask: &Mask) -> Self;
+}
+
+impl<Head, Tail> HListClonable for HCons<Head, Tail>
+where
+    Head: ColId,
+    Head::Output: Clone,
+    Tail: HListClonable,
 {
     fn copy_locs(&self, locs: &[usize]) -> Self {
         HCons {
@@ -418,7 +445,7 @@ where
     }
 }
 
-impl HListExt for HNil {
+impl HListClonable for HNil {
     fn copy_locs(&self, _: &[usize]) -> Self {
         HNil
     }
@@ -750,37 +777,7 @@ where
     }
 }
 
-// trait Applyable {
-//     type Ret;
-//     fn apply(&self) -> Self::Ret;
-// }
-
-// trait Applyer<F> {
-//     type Ret;
-//     fn apply(&self) -> Vec<Self::Ret>;
-// }
-
-// impl<Head, Tail, F> Applyer<F> for HCons<Head, Tail>
-// where
-//     Head: ColId,
-//     Collection<Head::Output>: Applyable,
-//     Tail: HList + Applyer<F>,
-// {
-//     type Ret = F::Ret;
-//     fn apply(&self) -> Vec<F::Ret> {
-//         let ret = self.tail.apply();
-//         ret.push(self.head.apply());
-//         ret
-//     }
-// }
-
-// impl<W: WriteToBuffer> Applyer for W {
-//     type Ret = (Vec<u8>, Vec<usize>);
-//     fn apply(&self) -> Self::Ret {
-//         self.write_to_buffer()
-//     }
-// }
-
+// TODO this only single idents, ie "my string column" is not allowed
 #[macro_export]
 macro_rules! define_col {
     ($tyname:ident, $typ:ty) => {
@@ -788,8 +785,8 @@ macro_rules! define_col {
     };
     ($tyname:ident, $typ:ty, $name:ident) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        pub struct $name;
-        impl ColId for $name {
+        pub struct $tyname;
+        impl ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;
         }
@@ -800,10 +797,10 @@ macro_rules! define_col {
 pub(crate) mod test_fixtures {
     use super::*;
 
-    define_col!(IntT, i64);
-    define_col!(StringT, String);
-    define_col!(FloatT, f64);
-    define_col!(BoolT, bool);
+    define_col!(IntT, i64, int_col);
+    define_col!(StringT, String, string_col);
+    define_col!(FloatT, f64, float_col);
+    define_col!(BoolT, bool, bool_col);
 
     pub(crate) type Data3 = Frame3<IntT, FloatT, StringT>;
 

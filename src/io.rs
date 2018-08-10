@@ -4,7 +4,7 @@ use std::io::Write;
 use std::io::{BufReader, BufWriter, Cursor, Read};
 use std::path::Path;
 
-use frame::{ColId, Frame, HCons, HList, HNil};
+use frame::{ColId, Frame, HCons, HList, HListExt, HNil};
 use {Collection, Result};
 
 // pub fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
@@ -153,7 +153,7 @@ impl WriteToBuffer for HNil {
 
 impl<H> Frame<H>
 where
-    H: HList + WriteToBuffer,
+    H: HList + WriteToBuffer + HListExt,
 {
     pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
         let w = File::create(path)?;
@@ -195,12 +195,13 @@ mod tests {
 
     use frame::test_fixtures::quickframe;
 
+    // TODO no string escaping
     #[test]
     fn test_write_writer() -> Result<()> {
         let mut w: Vec<u8> = Vec::new();
         let f = quickframe();
         let _ = f.write_writer(&mut w)?;
-        let expect = "
+        let expect = "int_col,float_col,string_col
 1,5,this
 2,4,is
 3,3,the
