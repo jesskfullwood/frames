@@ -4,7 +4,6 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use {Collection, Mask, Result};
-
 // The HList implementation is a modified version of the one found in the `frunk` crate.
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 // for details. (In fact, that implementation is much more complete)
@@ -12,6 +11,7 @@ use {Collection, Mask, Result};
 // TODO tag everything with #[must_use]
 
 pub trait ColId {
+    const NAME: &'static str;
     type Output;
 }
 
@@ -19,7 +19,7 @@ pub trait ColId {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
-    hlist: H,
+    pub(crate) hlist: H,
     len: usize,
 }
 
@@ -39,12 +39,16 @@ impl Default for Frame<HNil> {
 }
 
 impl<H: HList> Frame<H> {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.len
     }
 
     pub fn num_cols(&self) -> usize {
         H::SIZE
+    }
+
+    pub fn names(&self) -> Vec<&'static str> {
+        unimplemented!();
     }
 
     #[inline]
@@ -746,20 +750,54 @@ where
     }
 }
 
+// trait Applyable {
+//     type Ret;
+//     fn apply(&self) -> Self::Ret;
+// }
+
+// trait Applyer<F> {
+//     type Ret;
+//     fn apply(&self) -> Vec<Self::Ret>;
+// }
+
+// impl<Head, Tail, F> Applyer<F> for HCons<Head, Tail>
+// where
+//     Head: ColId,
+//     Collection<Head::Output>: Applyable,
+//     Tail: HList + Applyer<F>,
+// {
+//     type Ret = F::Ret;
+//     fn apply(&self) -> Vec<F::Ret> {
+//         let ret = self.tail.apply();
+//         ret.push(self.head.apply());
+//         ret
+//     }
+// }
+
+// impl<W: WriteToBuffer> Applyer for W {
+//     type Ret = (Vec<u8>, Vec<usize>);
+//     fn apply(&self) -> Self::Ret {
+//         self.write_to_buffer()
+//     }
+// }
+
 #[macro_export]
 macro_rules! define_col {
-    ($name:ident, $typ:ty) => {
+    ($tyname:ident, $typ:ty) => {
+        define_col!($tyname, $typ, $tyname);
+    };
+    ($tyname:ident, $typ:ty, $name:ident) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        struct $name;
+        pub struct $name;
         impl ColId for $name {
+            const NAME: &'static str = stringify!($name);
             type Output = $typ;
         }
     };
 }
 
 #[cfg(test)]
-mod tests {
-
+pub(crate) mod test_fixtures {
     use super::*;
 
     define_col!(IntT, i64);
@@ -767,9 +805,9 @@ mod tests {
     define_col!(FloatT, f64);
     define_col!(BoolT, bool);
 
-    type Data3 = Frame3<IntT, FloatT, StringT>;
+    pub(crate) type Data3 = Frame3<IntT, FloatT, StringT>;
 
-    fn quickframe() -> Data3 {
+    pub(crate) fn quickframe() -> Data3 {
         Frame::new()
             .addcol(vec![1, 2, 3, 4])
             .unwrap()
@@ -782,6 +820,13 @@ mod tests {
                     .collect::<Vec<_>>(),
             ).unwrap()
     }
+
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::test_fixtures::*;
+    use super::*;
 
     #[test]
     fn test_basic_frame() -> Result<()> {
