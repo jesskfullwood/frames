@@ -11,6 +11,12 @@ use {Collection, Mask, Result};
 
 // TODO tag everything with #[must_use]
 
+pub trait ColId {
+    type Output;
+}
+
+// *** Frame ***
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     hlist: H,
@@ -70,7 +76,7 @@ impl<H: HList> Frame<H> {
 
     pub fn replace<Col: ColId, Index>(&mut self, newcol: Collection<Col::Output>)
     where
-        H: Replace<Col, Index>,
+        H: Replacer<Col, Index>,
     {
         self.hlist.replace(newcol)
     }
@@ -154,7 +160,7 @@ impl<H: HList> Frame<H> {
 
 impl<H> Frame<H>
 where
-    H: HList + HListExt,
+    H: HListExt,
 {
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
@@ -208,7 +214,7 @@ where
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<LCol, LIx> + Replace<LCol, LIx>,
+        H: Selector<LCol, LIx> + Replacer<LCol, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -299,6 +305,17 @@ impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
     }
 }
 
+#[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
+pub struct HNil;
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct HCons<H: ColId, T> {
+    pub head: Collection<H::Output>,
+    pub tail: T,
+}
+
+// *** HList ***
+
 pub trait HList: Sized {
     const SIZE: usize;
     const IS_ROOT: bool;
@@ -316,36 +333,9 @@ pub trait HList: Sized {
     }
 }
 
-impl HListExt for HNil {
-    fn copy_locs(&self, _: &[usize]) -> Self {
-        HNil
-    }
-
-    fn copy_locs_opt(&self, _: &[Option<usize>]) -> Self {
-        HNil
-    }
-
-    fn filter_mask(&self, _mask: &Mask) -> Self {
-        HNil
-    }
-}
-
-pub trait ColId {
-    type Output;
-}
-
-#[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-pub struct HNil;
-
 impl HList for HNil {
     const SIZE: usize = 0;
     const IS_ROOT: bool = true;
-}
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct HCons<H: ColId, T> {
-    pub head: Collection<H::Output>,
-    pub tail: T,
 }
 
 impl<Head, Tail> HList for HCons<Head, Tail>
@@ -357,7 +347,9 @@ where
     const IS_ROOT: bool = false;
 }
 
-pub trait HListExt {
+// *** HListExt ***
+
+pub trait HListExt: HList {
     fn copy_locs(&self, locs: &[usize]) -> Self;
     fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self;
     fn filter_mask(&self, mask: &Mask) -> Self;
@@ -391,6 +383,22 @@ where
     }
 }
 
+impl HListExt for HNil {
+    fn copy_locs(&self, _: &[usize]) -> Self {
+        HNil
+    }
+
+    fn copy_locs_opt(&self, _: &[Option<usize>]) -> Self {
+        HNil
+    }
+
+    fn filter_mask(&self, _mask: &Mask) -> Self {
+        HNil
+    }
+}
+
+// *** Concat ***
+
 pub trait Concat<C> {
     type Combined: HList;
     fn concat_front(self, other: C) -> Self::Combined;
@@ -417,6 +425,8 @@ where
     }
 }
 
+// *** Selector ***
+
 pub trait Selector<S: ColId, Index> {
     fn get(&self) -> &Collection<S::Output>;
 }
@@ -437,6 +447,8 @@ where
         self.tail.get()
     }
 }
+
+// *** Extractor ***
 
 pub trait Extractor<Target: ColId, Index> {
     type Remainder: HList;
@@ -474,11 +486,13 @@ where
     }
 }
 
-pub trait Replace<Target: ColId, Index> {
+// *** Replacer ***
+
+pub trait Replacer<Target: ColId, Index> {
     fn replace(&mut self, newcol: Collection<Target::Output>);
 }
 
-impl<Head, Tail> Replace<Head, Here> for HCons<Head, Tail>
+impl<Head, Tail> Replacer<Head, Here> for HCons<Head, Tail>
 where
     Head: ColId,
     Tail: HList,
@@ -488,16 +502,18 @@ where
     }
 }
 
-impl<Head, Tail, FromTail, TailIndex> Replace<FromTail, There<TailIndex>> for HCons<Head, Tail>
+impl<Head, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for HCons<Head, Tail>
 where
     Head: ColId,
     FromTail: ColId,
-    Tail: HList + Replace<FromTail, TailIndex>,
+    Tail: HList + Replacer<FromTail, TailIndex>,
 {
     fn replace(&mut self, newcol: Collection<FromTail::Output>) {
         self.tail.replace(newcol)
     }
 }
+
+// *** Mapper ***
 
 pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
     type Mapped: HList;
