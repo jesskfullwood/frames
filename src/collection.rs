@@ -45,7 +45,7 @@ impl<T> From<Vec<T>> for Collection<T> {
 
 impl<T: PartialEq> PartialEq for Collection<T> {
     // We don't care if the indexes are the same
-    fn eq(&self, other: &Self) -> Bool {
+    fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;
         }
@@ -105,8 +105,10 @@ impl<T: Sized> Collection<T> {
                     null_vec.push(false);
                     null_count += 1;
                     // TODO this is UB when we try to DROP it, will probably segfault
-                    let scary: T = unsafe { ::std::mem::zeroed() };
-                    data.push(ManuallyDrop::new(scary))
+                    // let scary: T = unsafe { ::std::mem::zeroed() };
+                    println!("push!");
+                    data.push(unsafe { ::std::mem::zeroed() });
+                    println!("pushed!");
                 }
             }
         }
@@ -134,7 +136,7 @@ impl<T: Sized> Collection<T> {
         self.len() - self.0.null_count
     }
 
-    pub fn has_index(&self) -> Bool {
+    pub fn has_index(&self) -> bool {
         self.0.index.borrow().is_some()
     }
 
@@ -469,12 +471,6 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
             mean,
             stdev: variance.sqrt(),
         }
-    }
-}
-
-impl Collection<Float> {
-    pub(crate) fn as_ordered(&self) -> &Collection<OrdFloat> {
-        unsafe { &*(self as *const Self as *const Collection<OrdFloat>) }
     }
 }
 

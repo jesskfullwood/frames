@@ -781,13 +781,15 @@ mod tests {
     #[test]
     fn test_safely_drop() {
         use std::sync::Arc;
+        use std::rc::Rc;
         define_col!(Arcs, Arc<u64>);
+        define_col!(Rcs, Rc<u64>);
         // contains no nulls
         let _f0: Frame1<Arcs> = Frame::new()
             .addcol(Collection::from(vec![Arc::new(10), Arc::new(20)]))
             .unwrap();
         // contains nulls -> segfaults!
-        let coll = Collection::new_opt(vec![Some(Arc::new(1)), None].into_iter());
+        let coll = Collection::new_opt(vec![Some(Rc::new(1)), None].into_iter());
         // let f1: Frame1<Arcs> = Frame::new()
         //     .addcol(Collection::new_opt(
         //         vec![None, None, None, Some(Arc::new(1))].into_iter(),
