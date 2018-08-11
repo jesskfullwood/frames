@@ -1,9 +1,11 @@
+use column::{Column, Mask};
 pub use frame_alias::*;
 use hlist::*;
 use id;
+
 use std::hash::Hash;
 
-use {Collection, Mask, Result};
+use Result;
 // The HList implementation is a modified version of the one found in the `frunk` crate.
 // See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 // for details. (In fact, that implementation is much more complete)
@@ -55,7 +57,7 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline]
-    pub fn get<Col, Index>(&self) -> &Collection<Col::Output>
+    pub fn get<Col, Index>(&self) -> &Column<Col::Output>
     where
         Col: ColId,
         H: Selector<Col, Index>,
@@ -68,7 +70,7 @@ impl<H: HList> Frame<H> {
     pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
         Col: ColId,
-        Data: Into<Collection<Col::Output>>,
+        Data: Into<Column<Col::Output>>,
     {
         let coll = coll.into();
         if !H::IS_ROOT && coll.len() != self.len {
@@ -99,7 +101,7 @@ impl<H: HList> Frame<H> {
         self.len += 1;
     }
 
-    pub fn replace<Col: ColId, Index>(&mut self, newcol: Collection<Col::Output>)
+    pub fn replace<Col: ColId, Index>(&mut self, newcol: Column<Col::Output>)
     where
         H: Replacer<Col, Index>,
     {
@@ -142,7 +144,7 @@ impl<H: HList> Frame<H> {
     pub fn extract<Col, Index>(
         self,
     ) -> (
-        Collection<Col::Output>,
+        Column<Col::Output>,
         Frame<<H as Extractor<Col, Index>>::Remainder>,
     )
     where
@@ -249,7 +251,7 @@ where
         let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
         let joined = {
             let ljoined = leftframe.get::<LCol, _>();
-            Collection::new_opt(
+            Column::new(
                 ljoined
                     .iter()
                     .zip(rjoined.iter())
@@ -292,7 +294,7 @@ where
         }
         Ok(Frame {
             hlist: self.hlist.filter_mask(mask),
-            len: mask.true_count,
+            len: mask.true_count(),
         })
     }
 
@@ -321,7 +323,7 @@ where
 
 impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
     #[inline(always)]
-    pub fn pop(self) -> (Collection<Head::Output>, Frame<Tail>) {
+    pub fn pop(self) -> (Column<Head::Output>, Frame<Tail>) {
         let tail = Frame {
             hlist: self.hlist.tail,
             len: self.len,
@@ -587,7 +589,9 @@ pub(crate) mod tests {
         // basically same as above
         let f = quickframe();
         let f2 = f.filter::<IntT, _, _>(|&v| v > 2);
+        assert_eq!(f2.len(), 2);
         assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
+        assert_eq!(f2.get::<FloatT, _>(), &[3., 2.]);
     }
 
     #[test]
@@ -619,40 +623,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_safely_drop() {
-        use std::rc::Rc;
-        use std::sync::Arc;
-        define_col!(Arcs, Arc<u64>);
-        define_col!(Rcs, Rc<u64>);
-        // contains no nulls
-        let _f0: Frame1<Arcs> = Frame::new()
-            .addcol(Collection::from(vec![Arc::new(10), Arc::new(20)]))
-            .unwrap();
-        // contains nulls -> segfaults!
-        let coll = Collection::new_opt(vec![Some(Rc::new(1)), None].into_iter());
-        // let f1: Frame1<Arcs> = Frame::new()
-        //     .addcol(Collection::new_opt(
-        //         vec![None, None, None, Some(Arc::new(1))].into_iter(),
-        //     )).unwrap();
-        // ::std::mem::forget(f1);
-        // let f2 = f1.clone();
-    }
-
-    #[test]
     fn test_inner_join() -> Result<()> {
         // TODO parse a text string once reading csvs is implemented
         let f1 = quickframe();
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(false), Some(true), Some(false)].into_iter(),
-            ))?;
+            .addcol(Column::new(vec![Some(3), None, Some(2), Some(2)]))?
+            .addcol(Column::new(vec![
+                None,
+                Some(false),
+                Some(true),
+                Some(false),
+            ]))?;
         let f3 = f1.inner_join::<IntT, IntT, _, _, _>(&f2);
         assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
         assert_eq!(
             f3.get::<BoolT, _>(),
-            &Collection::new_opt(vec![Some(true), Some(false), None].into_iter())
+            &Column::new(vec![Some(true), Some(false), None])
         );
         Ok(())
     }
@@ -660,68 +646,58 @@ pub(crate) mod tests {
     #[test]
     fn test_left_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(5.), Some(4.), Some(3.)].into_iter(),
-            ))?;
+            .addcol(Column::new(vec![Some(3), None, Some(2), Some(2)]))?
+            .addcol(Column::new(vec![None, Some(5.), Some(4.), Some(3.)]))?;
 
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(2), Some(2), None, Some(1), Some(3)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![None, Some(false), Some(true), Some(false), None].into_iter(),
-            ))?;
+            .addcol(Column::new(vec![Some(2), Some(2), None, Some(1), Some(3)]))?
+            .addcol(Column::new(vec![
+                None,
+                Some(false),
+                Some(true),
+                Some(false),
+                None,
+            ]))?;
 
         let f3 = f1.left_join::<IntT, IntT, _, _, _>(&f2);
         assert_eq!(
             f3.get::<IntT, _>(),
-            &Collection::new_opt(
-                vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)].into_iter()
-            )
+            &Column::new(vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)])
         );
         assert_eq!(
             f3.get::<BoolT, _>(),
-            &Collection::new_opt(
-                vec![None, None, None, Some(false), None, Some(false)].into_iter()
-            )
+            &Column::new(vec![None, None, None, Some(false), None, Some(false)])
         );
         Ok(())
     }
 
     #[test]
     fn test_outer_join_nones() -> Result<()> {
-        let f1: Frame1<IntT> = Frame::new().addcol(Collection::new_opt(vec![None].into_iter()))?;
-        let f2: Frame1<IntT> =
-            Frame::new().addcol(Collection::new_opt(vec![None, None].into_iter()))?;
+        let f1: Frame1<IntT> = Frame::new().addcol(Column::new(vec![None]))?;
+        let f2: Frame1<IntT> = Frame::new().addcol(Column::new(vec![None, None]))?;
         let f3 = f1.outer_join(&f2);
-        assert_eq!(
-            f3.get(),
-            &Collection::new_opt(vec![None, None, None].into_iter())
-        );
+        assert_eq!(f3.get(), &Column::new(vec![None, None, None]));
         Ok(())
     }
 
     #[test]
     fn test_outer_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![Some(3), None, Some(2), None].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![Some(1.), Some(2.), None, Some(3.)].into_iter(),
-            ))?;
+            .addcol(Column::new(vec![Some(3), None, Some(2), None]))?
+            .addcol(Column::new(vec![Some(1.), Some(2.), None, Some(3.)]))?;
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Collection::new_opt(
-                vec![None, Some(3), Some(3), Some(2), Some(5)].into_iter(),
-            ))?.addcol(Collection::new_opt(
-                vec![Some(true), None, Some(false), Some(true), None].into_iter(),
-            ))?;
+            .addcol(Column::new(vec![None, Some(3), Some(3), Some(2), Some(5)]))?
+            .addcol(Column::new(vec![
+                Some(true),
+                None,
+                Some(false),
+                Some(true),
+                None,
+            ]))?;
         let f3 = f1.outer_join::<IntT, IntT, _, _, _>(&f2);
         assert_eq!(
             f3.get::<IntT, _>(),
-            &Collection::new_opt(
-                vec![Some(3), Some(3), None, Some(2), None, None, Some(5)].into_iter()
-            )
+            &Column::new(vec![Some(3), Some(3), None, Some(2), None, None, Some(5)])
         );
         Ok(())
     }

@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 
 use frame::{ColId, Frame};
 use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
-use {Collection, Result};
+use {Column, Result};
 
 pub fn read_csv<H, R>(path: impl AsRef<Path>) -> Result<Frame<H>>
 where
@@ -52,63 +52,12 @@ where
     Ok(frame)
 }
 
-// let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
-//     let mut columns: Vec<_> = row1
-//         .iter()
-//         .map(|v| {
-//             let mut col = ColType::sniff(v).to_builder();
-//             col.push(v).unwrap();
-//             col
-//         }).collect();
-//     for row in csviter {
-//         for (elem, col) in row?.iter().zip(columns.iter_mut()) {
-//             if col.push(elem).is_err() {
-//                 *col = col.try_cast(ColType::sniff(elem))?;
-//                 col.push(elem).unwrap();
-//             }
-//         }
-//     }
-//     let mut df = DataFrame::new();
-//     for (name, col) in headers
-//         .iter()
-//         .zip(columns.into_iter().map(CollectionBuilder::into_column))
-//     {
-//         df.setcol(name, col)?
-//     }
-//     Ok(df)
-// }
-
-// impl ColType {
-//     fn sniff(item: &str) -> ColType {
-//         use ColType as CT;
-//         if item.parse::<i64>().is_ok() {
-//             CT::Int
-//         } else if item.parse::<Float>().is_ok() {
-//             CT::Float
-//         } else if item.parse::<Bool>().is_ok() {
-//             CT::Bool
-//         } else {
-//             CT::String
-//         }
-//     }
-
-//     fn to_builder(self) -> CollectionBuilder {
-//         use ColType as CT;
-//         match self {
-//             CT::Int => CollectionBuilder::Int(Vec::new()),
-//             CT::Float => CollectionBuilder::Float(Vec::new()),
-//             CT::Bool => CollectionBuilder::Bool(Vec::new()),
-//             CT::String => CollectionBuilder::String(Vec::new()),
-//         }
-//     }
-// }
-
 pub trait WriteBuffer: Sized {
     const CHARS_PER_ELEM_HINT: usize = 10;
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>);
 }
 
-impl<T: Display> WriteBuffer for Collection<T> {
+impl<T: Display> WriteBuffer for Column<T> {
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>) {
         // TODO this could easily? be multithreaded
         let mut buffer = Vec::with_capacity(self.len() * Self::CHARS_PER_ELEM_HINT);
@@ -138,7 +87,7 @@ pub trait WriteToBuffer {
 impl<Head, Tail> WriteToBuffer for HCons<Head, Tail>
 where
     Head: ColId,
-    Collection<Head::Output>: WriteBuffer,
+    Column<Head::Output>: WriteBuffer,
     Tail: HList + WriteToBuffer,
 {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)> {

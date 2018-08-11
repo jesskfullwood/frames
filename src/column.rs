@@ -1,23 +1,30 @@
 use bit_vec::BitVec;
+use num::traits::AsPrimitive;
+use num::{self, Num};
 
+use std;
+use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::hash::Hash;
+use std::fmt::{Formatter, Debug};
 
-use *; // TODO import only what's needed
+
+use {id, Array, StdResult, IndexMap};
 
 #[derive(Clone)]
-pub struct Collection<T>(CollectionInner<T>);
+pub struct Column<T>(ColumnInner<T>);
 
 #[derive(Clone)]
-struct CollectionInner<T> {
+struct ColumnInner<T> {
     data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
     index: RefCell<Option<IndexMap<T>>>,
 }
 
-impl<T> Drop for CollectionInner<T> {
+impl<T> Drop for ColumnInner<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
@@ -31,19 +38,19 @@ impl<T> Drop for CollectionInner<T> {
     }
 }
 
-impl<T> From<Array<T>> for Collection<T> {
-    fn from(arr: Array<T>) -> Collection<T> {
-        Collection::new(arr)
+impl<T, I: IntoIterator<Item = T>> From<I> for Column<T> {
+    fn from(iter: I) -> Column<T> {
+        Column::new_notnull(iter)
     }
 }
 
-impl<T> From<Vec<T>> for Collection<T> {
-    fn from(vec: Vec<T>) -> Collection<T> {
-        Collection::new(Array::new(vec))
-    }
-}
+// impl<T, I: IntoIterator<Item=Option<T>>> From<I> for Column<T> {
+//     fn from(iter: I) -> Column<T> {
+//         Column::new(iter)
+//     }
+// }
 
-impl<T: PartialEq> PartialEq for Collection<T> {
+impl<T: PartialEq> PartialEq for Column<T> {
     // We don't care if the indexes are the same
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
@@ -60,7 +67,7 @@ impl<T: PartialEq> PartialEq for Collection<T> {
     }
 }
 
-impl<T: Debug> Debug for Collection<T> {
+impl<T: Debug> Debug for Column<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
         // This is very inefficient but we don't care because it's only for debugging
         let vals: Vec<String> = self
@@ -71,7 +78,7 @@ impl<T: Debug> Debug for Collection<T> {
             }).collect();;
         write!(
             f,
-            "Collection {{ indexed: {}, nulls: {}, vals: {:?} }}",
+            "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
             self.0.index.borrow().is_some(),
             self.0.null_count,
             vals
@@ -79,29 +86,30 @@ impl<T: Debug> Debug for Collection<T> {
     }
 }
 
-impl<T: Sized> Collection<T> {
-    pub(crate) fn new(data: Array<T>) -> Collection<T> {
-        // ManuallyDrop is a zero-cost wrapper so this should be safe
-        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Collection(CollectionInner {
-            null_count: 0,
-            null_vec: BitVec::from_elem(data.len(), true),
-            data,
+impl<T: Sized> Column<T> {
+    pub fn new(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
+        let mut null_vec = BitVec::new();
+        let mut null_count = 0;
+        let mut arr = Vec::new();
+        for v in data {
+            push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
+        }
+        Column(ColumnInner {
+            null_count,
+            null_vec,
+            data: Array::new(arr),
             index: RefCell::new(None),
         })
     }
 
-    pub fn new_opt(dataiter: impl Iterator<Item = Option<T>>) -> Collection<T> {
-        let mut null_vec = BitVec::new();
-        let mut null_count = 0;
-        let mut data = Vec::new();
-        for v in dataiter {
-            push_maybe_null(v, &mut data, &mut null_vec, &mut null_count);
-        }
-        Collection(CollectionInner {
-            null_count,
-            null_vec,
-            data: Array::new(data),
+    pub fn new_notnull(data: impl IntoIterator<Item = T>) -> Column<T> {
+        // ManuallyDrop is a zero-cost wrapper so this should be safe
+        let data = Array(data.into_iter().collect());
+        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
+        Column(ColumnInner {
+            null_count: 0,
+            null_vec: BitVec::from_elem(data.len(), true),
+            data,
             index: RefCell::new(None),
         })
     }
@@ -114,11 +122,11 @@ impl<T: Sized> Collection<T> {
         self.len() == 0
     }
 
-    pub fn null_count(&self) -> usize {
+    pub fn count_null(&self) -> usize {
         self.0.null_count
     }
 
-    pub fn non_null_count(&self) -> usize {
+    pub fn count_notnull(&self) -> usize {
         self.len() - self.0.null_count
     }
 
@@ -155,7 +163,7 @@ impl<T: Sized> Collection<T> {
             .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
-    pub fn iter_non_null(&self) -> impl Iterator<Item = &T> + '_ {
+    pub fn iter_notnull(&self) -> impl Iterator<Item = &T> + '_ {
         self.0
             .null_vec
             .iter()
@@ -164,12 +172,12 @@ impl<T: Sized> Collection<T> {
     }
 
     // TODO this is underused
-    pub fn map<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Collection<R> {
-        Collection::new_opt(self.iter().map(|v| func(v)))
+    pub fn map<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Column<R> {
+        Column::new(self.iter().map(|v| func(v)))
     }
 
-    pub fn map_notnull<R>(&self, func: impl Fn(&T) -> R) -> Collection<R> {
-        Collection::new_opt(self.iter().map(|v| {
+    pub fn map_notnull<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
+        Column::new(self.iter().map(|v| {
             match v {
                 Some(v) => Some(func(v)), // v.map(test) doesn't work for some reason
                 None => None,
@@ -215,14 +223,14 @@ fn push_maybe_null<T>(
 }
 
 // We don't care whether the index exists so need custom impl
-impl<A, T> PartialEq<A> for Collection<T>
+impl<A, T> PartialEq<A> for Column<T>
 where
     A: AsRef<[T]>,
     T: PartialEq,
 {
     fn eq(&self, other: &A) -> bool {
         let slice: &[T] = other.as_ref();
-        if self.null_count() > 0 || self.len() != slice.len() {
+        if self.count_null() > 0 || self.len() != slice.len() {
             return false;
         }
         self.iter()
@@ -232,17 +240,17 @@ where
     }
 }
 
-impl<T: Clone> Collection<T> {
-    /// Create new Collection taking values from provided slice of indices
-    pub(crate) fn copy_locs(&self, locs: &[usize]) -> Collection<T> {
-        Collection::new_opt(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
+impl<T: Clone> Column<T> {
+    /// Create new Column taking values from provided slice of indices
+    pub(crate) fn copy_locs(&self, locs: &[usize]) -> Column<T> {
+        Column::new(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
     }
 
-    /// Create new Collection taking values from provided slice of indices,
+    /// Create new Column taking values from provided slice of indices,
     /// possibly interjecting nulls
     /// This function is mainly useful for joins
-    pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Collection<T> {
-        Collection::new_opt(locs.iter().map(|&ix| {
+    pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Column<T> {
+        Column::new(locs.iter().map(|&ix| {
             if let Some(ix) = ix {
                 self.get(ix).unwrap().cloned()
             } else {
@@ -254,21 +262,21 @@ impl<T: Clone> Collection<T> {
     // TODO This basically exists to help with doing group-bys
     // might be a way to do things faster/more cleanly
     // It is guaranteed that each Vec<usize> is nonempty
-    pub(crate) fn copy_first_locs(&self, locs: &[Vec<usize>]) -> Collection<T> {
-        let data = locs
+    pub(crate) fn copy_first_locs(&self, locs: &[Vec<usize>]) -> Column<T> {
+        let data: Vec<_> = locs
             .iter()
             .map(|inner| {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().unwrap().clone()
             }).collect();
-        Collection::new(Array::new(data))
+        Column::new_notnull(data)
     }
 
     // Filter collection from mask. Nulls are considered equivalent to false
     pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
-        Collection::new_opt(self.iter().zip(mask.iter()).filter_map(|(v, b)| {
+        Column::new(self.iter().zip(mask.iter()).filter_map(|(v, b)| {
             if b.unwrap_or(false) {
                 Some(v.cloned())
             } else {
@@ -278,7 +286,7 @@ impl<T: Clone> Collection<T> {
     }
 }
 
-impl<T: Hash + Clone + Eq> Collection<T> {
+impl<T: Hash + Clone + Eq> Column<T> {
     // TODO Question: Should to location of nulls be indexed?
     // I think not - we already have the bit-vec
     pub fn build_index(&self) {
@@ -297,7 +305,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
         *self.0.index.borrow_mut() = Some(index);
     }
 
-    pub(crate) fn inner_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<usize>) {
+    pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
         other.build_index();
 
         let rborrow = other.0.index.borrow();
@@ -320,7 +328,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
         (leftout, rightout)
     }
 
-    pub(crate) fn left_join_locs(&self, other: &Collection<T>) -> (Vec<usize>, Vec<Option<usize>>) {
+    pub(crate) fn left_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<Option<usize>>) {
         other.build_index();
         let rborrow = other.0.index.borrow();
         let rindex = rborrow.as_ref().unwrap();
@@ -352,7 +360,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
 
     pub(crate) fn outer_join_locs(
         &self,
-        other: &Collection<T>,
+        other: &Column<T>,
     ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
         self.build_index();
         other.build_index();
@@ -426,7 +434,7 @@ impl<T: Hash + Clone + Eq> Collection<T> {
     }
 }
 
-impl<T: Num + Copy> Collection<T> {
+impl<T: Num + Copy> Column<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
     pub fn sum(&self) -> T {
@@ -436,7 +444,7 @@ impl<T: Num + Copy> Collection<T> {
     }
 }
 
-impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
+impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     /// Calculate the mean of the collection. Ignores null values
     pub fn mean(&self) -> f64 {
         let s: f64 = self.sum().as_();
@@ -452,8 +460,8 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
             sigmafxsqr += n * n;
             sigmafx += n;
         });
-        let mean = sigmafx / self.non_null_count() as f64;
-        sigmafxsqr / self.non_null_count() as f64 - mean * mean
+        let mean = sigmafx / self.count_notnull() as f64;
+        sigmafxsqr / self.count_notnull() as f64 - mean * mean
     }
 
     /// Calculate the standard deviation of the collection. Ignores null values
@@ -467,7 +475,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
         let mut max = std::f64::MIN;
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
-        let len = self.non_null_count();
+        let len = self.count_notnull();
 
         self.iter().filter_map(id).for_each(|n| {
             let n: f64 = n.as_();
@@ -484,7 +492,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
         let variance = sigmafxsqr / len as f64 - mean * mean;
         Describe {
             len: self.len(),
-            null_count: self.null_count(),
+            null_count: self.count_null(),
             min,
             max,
             mean,
@@ -493,32 +501,91 @@ impl<T: Num + Copy + AsPrimitive<f64>> Collection<T> {
     }
 }
 
-#[test]
-fn test_build_with_nulls() {
-    let c = Collection::new_opt((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
-    assert_eq!(c.len(), 5);
-    assert_eq!(c.null_count(), 2);
-    let vals: Vec<Option<u32>> = c.iter().map(|v| v.cloned()).collect();
-    assert_eq!(vals, vec![Some(0), None, Some(2), None, Some(4)]);
-
-    let c2 = c.map_notnull(|v| *v);
-    assert_eq!(c, c2);
-
-    let c3 = c.map(|v| v.map(|u| u * u));
-    let vals: Vec<Option<u32>> = c3.iter().map(|v| v.cloned()).collect();
-    assert_eq!(vals, vec![Some(0), None, Some(4), None, Some(16)]);
+pub struct Mask {
+    mask: Column<bool>,
+    true_count: usize,
 }
 
-#[test]
-fn test_build_null_strings() {
-    let words = vec![
-        Some(String::from("hi")),
-        None,
-        Some(String::from("there")),
-        None,
-    ];
-    let c = Collection::new_opt(words.into_iter());
-    assert_eq!(c.len(), 4);
-    assert_eq!(c.null_count(), 2);
-    drop(c)
+// TODO mask::from(vec<Bool>)
+impl Mask {
+    pub fn len(&self) -> usize {
+        self.mask.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Option<bool>> + '_ {
+        self.mask.iter().map(|b| b.cloned())
+    }
+
+    pub fn true_count(&self) -> usize {
+        self.true_count
+    }
+}
+
+impl From<Column<bool>> for Mask {
+    fn from(mask: Column<bool>) -> Self {
+        let true_count = mask
+            .iter()
+            .fold(0, |acc, v| if *v.unwrap_or(&false) { acc + 1 } else { acc });
+        Mask { mask, true_count }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Describe {
+    // TODO Quartiles?
+    pub len: usize,
+    pub null_count: usize,
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub stdev: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_with_nulls() {
+        let c = Column::new((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
+        assert_eq!(c.len(), 5);
+        assert_eq!(c.count_null(), 2);
+        let vals: Vec<Option<u32>> = c.iter().map(|v| v.cloned()).collect();
+        assert_eq!(vals, vec![Some(0), None, Some(2), None, Some(4)]);
+
+        let c2 = c.map_notnull(|v| *v);
+        assert_eq!(c, c2);
+
+        let c3 = c.map(|v| v.map(|u| u * u));
+        let vals: Vec<Option<u32>> = c3.iter().map(|v| v.cloned()).collect();
+        assert_eq!(vals, vec![Some(0), None, Some(4), None, Some(16)]);
+    }
+
+    #[test]
+    fn test_build_null_strings() {
+        let words = vec![
+            Some(String::from("hi")),
+            None,
+            Some(String::from("there")),
+            None,
+            None,
+        ];
+        let c = Column::new(words.into_iter());
+        assert_eq!(c.len(), 5);
+        assert_eq!(c.count_null(), 3);
+        assert_eq!(c.count_notnull(), 2);
+        drop(c)
+    }
+
+    #[test]
+    fn test_safely_drop() {
+        use std::rc::Rc;
+        use std::sync::Arc;
+        // contains no nulls
+        let c1 = Column::new_notnull(vec![Arc::new(10), Arc::new(20)]);
+        drop(c1);
+        // contains nulls -> segfaults!
+        let c2 = Column::new(vec![Some(Rc::new(1)), None]);
+        drop(c2);
+    }
 }

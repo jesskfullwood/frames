@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
-use collection::Collection;
+use column::{Column, Mask};
 use frame::ColId;
-use Mask;
 
 // ### HList struct defs ###
 
@@ -11,7 +10,7 @@ pub struct HNil;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct HCons<H: ColId, T> {
-    pub head: Collection<H::Output>,
+    pub head: Column<H::Output>,
     pub tail: T,
 }
 
@@ -38,7 +37,7 @@ pub trait HList: Sized {
         Self::SIZE
     }
 
-    fn addcol<T: ColId>(self, head: impl Into<Collection<T::Output>>) -> HCons<T, Self> {
+    fn addcol<T: ColId>(self, head: impl Into<Column<T::Output>>) -> HCons<T, Self> {
         HCons {
             head: head.into(),
             tail: self,
@@ -167,11 +166,11 @@ where
 // ### Selector ###
 
 pub trait Selector<S: ColId, Index> {
-    fn get(&self) -> &Collection<S::Output>;
+    fn get(&self) -> &Column<S::Output>;
 }
 
 impl<Col: ColId, Tail> Selector<Col, Here> for HCons<Col, Tail> {
-    fn get(&self) -> &Collection<Col::Output> {
+    fn get(&self) -> &Column<Col::Output> {
         &self.head
     }
 }
@@ -182,7 +181,7 @@ where
     FromTail: ColId,
     Tail: Selector<FromTail, TailIndex>,
 {
-    fn get(&self) -> &Collection<FromTail::Output> {
+    fn get(&self) -> &Column<FromTail::Output> {
         self.tail.get()
     }
 }
@@ -191,13 +190,13 @@ where
 
 pub trait Extractor<Target: ColId, Index> {
     type Remainder: HList;
-    fn extract(self) -> (Collection<Target::Output>, Self::Remainder);
+    fn extract(self) -> (Column<Target::Output>, Self::Remainder);
 }
 
 impl<Head: ColId, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
     type Remainder = Tail;
 
-    fn extract(self) -> (Collection<Head::Output>, Self::Remainder) {
+    fn extract(self) -> (Column<Head::Output>, Self::Remainder) {
         (self.head, self.tail)
     }
 }
@@ -210,9 +209,9 @@ where
 {
     type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
 
-    fn extract(self) -> (Collection<FromTail::Output>, Self::Remainder) {
+    fn extract(self) -> (Column<FromTail::Output>, Self::Remainder) {
         let (target, tail_remainder): (
-            Collection<FromTail::Output>,
+            Column<FromTail::Output>,
             <Tail as Extractor<FromTail, TailIndex>>::Remainder,
         ) = <Tail as Extractor<FromTail, TailIndex>>::extract(self.tail);
         (
@@ -228,7 +227,7 @@ where
 // ### Replacer ###
 
 pub trait Replacer<Target: ColId, Index> {
-    fn replace(&mut self, newcol: Collection<Target::Output>);
+    fn replace(&mut self, newcol: Column<Target::Output>);
 }
 
 impl<Head, Tail> Replacer<Head, Here> for HCons<Head, Tail>
@@ -236,7 +235,7 @@ where
     Head: ColId,
     Tail: HList,
 {
-    fn replace(&mut self, newcol: Collection<Head::Output>) {
+    fn replace(&mut self, newcol: Column<Head::Output>) {
         self.head = newcol;
     }
 }
@@ -247,7 +246,7 @@ where
     FromTail: ColId,
     Tail: HList + Replacer<FromTail, TailIndex>,
 {
-    fn replace(&mut self, newcol: Collection<FromTail::Output>) {
+    fn replace(&mut self, newcol: Column<FromTail::Output>) {
         self.tail.replace(newcol)
     }
 }
@@ -350,7 +349,7 @@ impl Insertable for HNil {
     fn empty() -> Self {
         HNil
     }
-    unsafe fn insert(&mut self, product: ()) {}
+    unsafe fn insert(&mut self, _product: ()) {}
 }
 
 // ### Transformer ###
