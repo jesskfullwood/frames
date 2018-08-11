@@ -488,7 +488,7 @@ pub(crate) mod test_fixtures {
             .addcol(vec![5., 4., 3., 2.])
             .unwrap()
             .addcol(
-                "this is the words"
+                r#"this,'" is the words"#
                     .split(' ')
                     .map(String::from)
                     .collect::<Vec<_>>(),

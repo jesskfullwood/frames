@@ -6,12 +6,13 @@ use std::path::Path;
 
 use csv;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-use frame::{ColId, Frame};
+use frame::{ColId, Frame, RowTuple};
 use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
 use {Column, Result};
 
-pub fn read_csv<H, R>(path: impl AsRef<Path>) -> Result<Frame<H>>
+pub fn read_csv<H>(path: impl AsRef<Path>) -> Result<Frame<H>>
 where
     H: HList + Insertable,
     H::Product: Transformer,
@@ -73,12 +74,12 @@ impl<T: Display> WriteBuffer for Column<T> {
     }
 }
 
-fn buffer_slices<'a>(buffer: &'a [u8], indices: &'a [usize]) -> impl Iterator<Item = &'a [u8]> {
-    (&indices[..indices.len() - 1])
-        .iter()
-        .zip(&indices[1..])
-        .map(move |(&start, &end)| &buffer[start..end])
-}
+// fn buffer_slices<'a>(buffer: &'a [u8], indices: &'a [usize]) -> impl Iterator<Item = &'a [u8]> {
+//     (&indices[..indices.len() - 1])
+//         .iter()
+//         .zip(&indices[1..])
+//         .map(move |(&start, &end)| &buffer[start..end])
+// }
 
 pub trait WriteToBuffer {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)>;
@@ -107,38 +108,65 @@ impl<H> Frame<H>
 where
     H: HList + WriteToBuffer + HListExt,
 {
-    pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn write_csv<'a>(&'a self, path: impl AsRef<Path>) -> Result<()>
+    where
+        H: RowTuple<'a>,
+        <H as RowTuple<'a>>::ProductOptRef: Transformer,
+        <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
+    {
         let w = File::create(path)?;
         let w = BufWriter::new(w);
         self.write_writer(w)
     }
 
-    pub fn write_writer(&self, mut w: impl Write) -> Result<()> {
-        let ncols = self.num_cols();
-        for (ix, name) in self.names().iter().enumerate() {
-            write!(w, "{}", name)?;
-            if ix != ncols - 1 {
-                w.write_all(&[b','])?;
-            }
-        }
-        w.write_all(&[b'\n'])?;
-        let buffers: Vec<_> = self.hlist.write_to_buffer();
-        let mut bufslices: Vec<_> = buffers
-            .iter()
-            .map(|(buf, ixs)| buffer_slices(&buf, &ixs))
-            .collect();
-        for _rix in 0..self.len() {
-            for (cix, col) in bufslices.iter_mut().enumerate() {
-                // unwrap guaranteed to succeed
-                w.write_all(col.next().unwrap())?;
-                if cix != ncols - 1 {
-                    w.write_all(&[b','])?;
-                }
-            }
-            w.write_all(&[b'\n'])?;
+    pub fn write_writer<'a>(&'a self, w: impl Write) -> Result<()>
+    where
+        H: RowTuple<'a>,
+        <H as RowTuple<'a>>::ProductOptRef: Transformer,
+        <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
+    {
+        let names = self.names();
+        let mut w = csv::Writer::from_writer(w);
+        w.serialize(names)?;
+        for row in self.iter_rows() {
+            w.serialize(row)?
         }
         Ok(())
     }
+
+    // TODO: Benchmark + this alternative impl
+    // pub fn write_csv(&self, path: impl AsRef<Path>) -> Result<()> {
+    //     let w = File::create(path)?;
+    //     let w = BufWriter::new(w);
+    //     self.write_writer(w)
+    // }
+
+    // pub fn write_writer(&self, mut w: impl Write) -> Result<()> {
+    //     let ncols = self.num_cols();
+    //     for (ix, name) in self.names().iter().enumerate() {
+    //         write!(w, "{}", name)?;
+    //         if ix != ncols - 1 {
+    //             w.write_all(&[b','])?;
+    //         }
+    //     }
+    //     w.write_all(&[b'\n'])?;
+    //     let buffers: Vec<_> = self.hlist.write_to_buffer();
+    //     let mut bufslices: Vec<_> = buffers
+    //         .iter()
+    //         .map(|(buf, ixs)| buffer_slices(&buf, &ixs))
+    //         .collect();
+    //     for _rix in 0..self.len() {
+    //         for (cix, col) in bufslices.iter_mut().enumerate() {
+    //             // unwrap guaranteed to succeed
+    //             w.write_all(col.next().unwrap())?;
+    //             if cix != ncols - 1 {
+    //                 w.write_all(&[b','])?;
+    //             }
+    //         }
+    //         w.write_all(&[b'\n'])?;
+    //     }
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]
@@ -153,12 +181,12 @@ mod tests {
         let mut w: Vec<u8> = Vec::new();
         let f = quickframe();
         let _ = f.write_writer(&mut w)?;
-        let expect = "int_col,float_col,string_col
-1,5,this
+        let expect = r#"int_col,float_col,string_col
+1,5,"this,'"""
 2,4,is
 3,3,the
 4,2,words
-";
+"#;
         assert_eq!(expect, String::from_utf8_lossy(&w));
         Ok(())
     }
@@ -166,11 +194,12 @@ mod tests {
     #[test]
     fn test_reader_csv() -> Result<()> {
         let expect = quickframe();
-        let csv = "int_col,float_col,string_col
-1,5,this
+        let csv = r#"int_col,float_col,string_col
+1,5,"this,'"""
 2,4,is
 3,3,the
-4,2,words";
+4,2,words
+"#;
         let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
         assert_eq!(frame, expect);
         Ok(())

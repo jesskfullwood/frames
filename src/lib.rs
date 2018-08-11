@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::ops::Index;
 
 pub use column::Column;
-pub use frame::Frame;
+pub use frame::{ColId, Frame};
 pub use io::read_csv;
 
 pub mod column;
@@ -66,4 +66,3 @@ impl<T> Index<usize> for Array<T> {
         &self.0[index]
     }
 }
-

@@ -4,14 +4,13 @@ use num::{self, Num};
 
 use std;
 use std::cell::RefCell;
+use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::hash::Hash;
-use std::fmt::{Formatter, Debug};
 
-
-use {id, Array, StdResult, IndexMap};
+use {id, Array, IndexMap, StdResult};
 
 #[derive(Clone)]
 pub struct Column<T>(ColumnInner<T>);
