@@ -5,6 +5,9 @@ extern crate failure;
 extern crate bit_vec;
 extern crate csv;
 extern crate num;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate ordered_float;
 
 use std::cell::RefCell;
@@ -21,6 +24,7 @@ use collection::Collection;
 pub mod collection;
 pub mod frame;
 mod frame_alias;
+pub(crate) mod hlist;
 pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;

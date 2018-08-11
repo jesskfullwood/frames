@@ -1,4 +1,5 @@
-use frame::{Frame, HCons, HNil};
+use frame::Frame;
+use hlist::{HCons, HNil};
 
 macro_rules! frame_alias {
     ($($frames:ident),+ -> $typFirst:ident, $($typsNext:ident),*) => { // start things off

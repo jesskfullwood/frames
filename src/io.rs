@@ -1,28 +1,41 @@
 use std::fmt::Display;
 use std::fs::File;
-use std::io::Write;
-use std::io::{BufReader, BufWriter, Cursor, Read};
+use std::io::{BufReader, BufWriter, Cursor};
+use std::io::{Read, Write};
 use std::path::Path;
 
-use frame::{ColId, Frame, HCons, HList, HListExt, HNil};
+use csv;
+use serde::de::DeserializeOwned;
+
+use frame::{ColId, Frame};
+use hlist::{HCons, HList, HListExt, HNil, Transformer};
 use {Collection, Result};
 
-// pub fn read_csv(path: impl AsRef<Path>) -> Result<DataFrame> {
+// pub fn read_csv<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
 //     let f = File::open(path)?;
 //     let f = BufReader::new(f);
 //     read_reader(f)
 // }
 
-// pub fn read_string(data: &str) -> Result<DataFrame> {
+// pub fn read_string<T: Readable>(data: &str) -> Result<T> {
 //     let cur = Cursor::new(data);
 //     read_reader(cur)
 // }
 
-// pub fn read_reader<R: Read>(reader: R) -> Result<DataFrame> {
-//     let mut reader = csv::Reader::from_reader(reader);
-//     let headers = reader.headers()?.clone();
-//     let mut csviter = reader.records();
-//     let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
+pub fn read_reader<R, H>(reader: R) -> Result<Frame<H>>
+where
+    H: HList,
+    H::Product: DeserializeOwned + Transformer,
+    R: Read,
+{
+    let mut reader = csv::Reader::from_reader(reader);
+    let headers = reader.headers()?.clone();
+    for row in reader.deserialize() {
+        let row = row?;
+    }
+    unimplemented!();
+}
+// let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
 //     let mut columns: Vec<_> = row1
 //         .iter()
 //         .map(|v| {
@@ -73,40 +86,6 @@ use {Collection, Result};
 //     }
 // }
 
-//     fn write_to_buffer(slice: &[String]) -> (Vec<u8>, Vec<usize>) {
-//         // TODO multithreading
-//         let mut buffer = Vec::with_capacity(slice.len() * Self::CHARS_PER_ELEM_HINT);
-//         let mut strixs = Vec::with_capacity(slice.len() + 1);
-//         strixs.push(0);
-//         for elem in slice {
-//             // For convenience we quote everything
-//             buffer.push(b'"');
-//             for byte in elem.as_bytes() {
-//                 match byte {
-//                     b'"' => {
-//                         // CSV spec says to do this
-//                         buffer.push(b'"');
-//                         buffer.push(b'"');
-//                     }
-//                     &c => {
-//                         buffer.push(c);
-//                     }
-//                 }
-//             }
-//             buffer.push(b'"');
-//             strixs.push(buffer.len())
-//         }
-//         (buffer, strixs)
-//     }
-// }
-
-fn buffer_slices<'a>(buffer: &'a [u8], indices: &'a [usize]) -> impl Iterator<Item = &'a [u8]> {
-    (&indices[..indices.len() - 1])
-        .iter()
-        .zip(&indices[1..])
-        .map(move |(&start, &end)| &buffer[start..end])
-}
-
 pub trait WriteBuffer: Sized {
     const CHARS_PER_ELEM_HINT: usize = 10;
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>);
@@ -126,6 +105,13 @@ impl<T: Display> WriteBuffer for Collection<T> {
         }
         (buffer, strixs)
     }
+}
+
+fn buffer_slices<'a>(buffer: &'a [u8], indices: &'a [usize]) -> impl Iterator<Item = &'a [u8]> {
+    (&indices[..indices.len() - 1])
+        .iter()
+        .zip(&indices[1..])
+        .map(move |(&start, &end)| &buffer[start..end])
 }
 
 pub trait WriteToBuffer {

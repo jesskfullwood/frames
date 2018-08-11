@@ -1,7 +1,7 @@
 pub use frame_alias::*;
+use hlist::*;
 use id;
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 use {Collection, Mask, Result};
 // The HList implementation is a modified version of the one found in the `frunk` crate.
@@ -314,335 +314,26 @@ impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
 
 impl<'a, H> Frame<H>
 where
-    Self: Flatten<'a>,
-    H: HList + RowTuple<'a, Tuple = <Self as Flatten<'a>>::Nested>,
+    H: HList + RowTuple<'a>,
+    <H as RowTuple<'a>>::ProductOptRef: Transformer,
 {
-    pub fn get_row(&'a self, index: usize) -> Option<<Self as Flatten>::Flattened> {
+    pub fn get_row(
+        &'a self,
+        index: usize,
+    ) -> Option<<<H as RowTuple>::ProductOptRef as Transformer>::Flattened> {
         if index >= self.len() {
             return None;
         }
-        let nested = self.hlist.get_tuple(index);
-        Some(Self::unnest(nested))
+        let nested = self.hlist.get_product(index);
+        Some(H::ProductOptRef::flatten(nested))
     }
 
-    pub fn iter_rows(&'a self) -> impl Iterator<Item = <Self as Flatten>::Flattened> {
+    pub fn iter_rows(
+        &'a self,
+    ) -> impl Iterator<Item = <<H as RowTuple>::ProductOptRef as Transformer>::Flattened> {
         IterRows {
             frame: &self,
             index: 0,
-        }
-    }
-}
-
-// ### HList struct defs ###
-
-#[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-pub struct HNil;
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct HCons<H: ColId, T> {
-    pub head: Collection<H::Output>,
-    pub tail: T,
-}
-
-pub struct Here {
-    _priv: (),
-}
-
-pub struct There<T> {
-    _marker: PhantomData<T>,
-}
-
-// ### HList ###
-
-pub trait HList: Sized {
-    const SIZE: usize;
-    const IS_ROOT: bool;
-
-    #[inline]
-    fn size(&self) -> usize {
-        Self::SIZE
-    }
-
-    fn addcol<T: ColId>(self, head: impl Into<Collection<T::Output>>) -> HCons<T, Self> {
-        HCons {
-            head: head.into(),
-            tail: self,
-        }
-    }
-}
-
-impl HList for HNil {
-    const SIZE: usize = 0;
-    const IS_ROOT: bool = true;
-}
-
-impl<Head, Tail> HList for HCons<Head, Tail>
-where
-    Head: ColId,
-    Tail: HList,
-{
-    const SIZE: usize = 1 + <Tail as HList>::SIZE;
-    const IS_ROOT: bool = false;
-}
-
-// ### HListExt ###
-
-pub trait HListExt: HList {
-    fn get_names(&self) -> Vec<&'static str>;
-}
-
-impl<Head, Tail> HListExt for HCons<Head, Tail>
-where
-    Head: ColId,
-    Tail: HListExt,
-{
-    fn get_names(&self) -> Vec<&'static str> {
-        let mut ret = self.tail.get_names();
-        ret.push(Head::NAME);
-        ret
-    }
-}
-
-impl HListExt for HNil {
-    fn get_names(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
-}
-
-// ### HListClonable ###
-
-pub trait HListClonable: HList {
-    fn copy_locs(&self, locs: &[usize]) -> Self;
-    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self;
-    fn filter_mask(&self, mask: &Mask) -> Self;
-}
-
-impl<Head, Tail> HListClonable for HCons<Head, Tail>
-where
-    Head: ColId,
-    Head::Output: Clone,
-    Tail: HListClonable,
-{
-    fn copy_locs(&self, locs: &[usize]) -> Self {
-        HCons {
-            head: self.head.copy_locs(locs),
-            tail: self.tail.copy_locs(locs),
-        }
-    }
-
-    fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self {
-        HCons {
-            head: self.head.copy_locs_opt(locs),
-            tail: self.tail.copy_locs_opt(locs),
-        }
-    }
-
-    fn filter_mask(&self, mask: &Mask) -> Self {
-        HCons {
-            head: self.head.filter_mask(mask),
-            tail: self.tail.filter_mask(mask),
-        }
-    }
-}
-
-impl HListClonable for HNil {
-    fn copy_locs(&self, _: &[usize]) -> Self {
-        HNil
-    }
-
-    fn copy_locs_opt(&self, _: &[Option<usize>]) -> Self {
-        HNil
-    }
-
-    fn filter_mask(&self, _mask: &Mask) -> Self {
-        HNil
-    }
-}
-
-// ### Concat ###
-
-pub trait Concat<C> {
-    type Combined: HList;
-    fn concat_front(self, other: C) -> Self::Combined;
-}
-
-impl<C: HList> Concat<C> for HNil {
-    type Combined = C;
-    fn concat_front(self, other: C) -> Self::Combined {
-        other
-    }
-}
-
-impl<Head, Tail, C> Concat<C> for HCons<Head, Tail>
-where
-    Head: ColId,
-    Tail: Concat<C>,
-{
-    type Combined = HCons<Head, <Tail as Concat<C>>::Combined>;
-    fn concat_front(self, other: C) -> Self::Combined {
-        HCons {
-            head: self.head,
-            tail: self.tail.concat_front(other),
-        }
-    }
-}
-
-// ### Selector ###
-
-pub trait Selector<S: ColId, Index> {
-    fn get(&self) -> &Collection<S::Output>;
-}
-
-impl<Col: ColId, Tail> Selector<Col, Here> for HCons<Col, Tail> {
-    fn get(&self) -> &Collection<Col::Output> {
-        &self.head
-    }
-}
-
-impl<Head, Tail, FromTail, TailIndex> Selector<FromTail, There<TailIndex>> for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    Tail: Selector<FromTail, TailIndex>,
-{
-    fn get(&self) -> &Collection<FromTail::Output> {
-        self.tail.get()
-    }
-}
-
-// ### Extractor ###
-
-pub trait Extractor<Target: ColId, Index> {
-    type Remainder: HList;
-    fn extract(self) -> (Collection<Target::Output>, Self::Remainder);
-}
-
-impl<Head: ColId, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
-    type Remainder = Tail;
-
-    fn extract(self) -> (Collection<Head::Output>, Self::Remainder) {
-        (self.head, self.tail)
-    }
-}
-
-impl<Head, Tail, FromTail, TailIndex> Extractor<FromTail, There<TailIndex>> for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    Tail: Extractor<FromTail, TailIndex>,
-{
-    type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
-
-    fn extract(self) -> (Collection<FromTail::Output>, Self::Remainder) {
-        let (target, tail_remainder): (
-            Collection<FromTail::Output>,
-            <Tail as Extractor<FromTail, TailIndex>>::Remainder,
-        ) = <Tail as Extractor<FromTail, TailIndex>>::extract(self.tail);
-        (
-            target,
-            HCons {
-                head: self.head,
-                tail: tail_remainder,
-            },
-        )
-    }
-}
-
-// ### Replacer ###
-
-pub trait Replacer<Target: ColId, Index> {
-    fn replace(&mut self, newcol: Collection<Target::Output>);
-}
-
-impl<Head, Tail> Replacer<Head, Here> for HCons<Head, Tail>
-where
-    Head: ColId,
-    Tail: HList,
-{
-    fn replace(&mut self, newcol: Collection<Head::Output>) {
-        self.head = newcol;
-    }
-}
-
-impl<Head, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    Tail: HList + Replacer<FromTail, TailIndex>,
-{
-    fn replace(&mut self, newcol: Collection<FromTail::Output>) {
-        self.tail.replace(newcol)
-    }
-}
-
-// ### Mapper ###
-
-pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
-    type Mapped: HList;
-    fn map_replace<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(Option<&Target::Output>) -> Option<<NewCol as ColId>::Output>;
-
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
-}
-
-impl<Head, Tail, NewCol> Mapper<Head, NewCol, Here> for HCons<Head, Tail>
-where
-    Head: ColId,
-    NewCol: ColId,
-    Tail: HList,
-{
-    type Mapped = HCons<NewCol, Tail>;
-    fn map_replace<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
-    {
-        HCons {
-            head: self.head.map(func),
-            tail: self.tail,
-        }
-    }
-
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
-    {
-        HCons {
-            head: self.head.map_notnull(func),
-            tail: self.tail,
-        }
-    }
-}
-
-impl<Head, Tail, NewCol, FromTail, TailIndex> Mapper<FromTail, NewCol, There<TailIndex>>
-    for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    NewCol: ColId,
-    Tail: HList + Mapper<FromTail, NewCol, TailIndex>,
-{
-    type Mapped = HCons<Head, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
-
-    fn map_replace<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(Option<&FromTail::Output>) -> Option<<NewCol as ColId>::Output>,
-    {
-        HCons {
-            head: self.head,
-            tail: self.tail.map_replace(func),
-        }
-    }
-
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
-    where
-        F: Fn(&FromTail::Output) -> <NewCol as ColId>::Output,
-    {
-        HCons {
-            head: self.head,
-            tail: self.tail.map_replace_notnull(func),
         }
     }
 }
@@ -698,8 +389,8 @@ where
 // ### RowTuple ###
 
 pub trait RowTuple<'a> {
-    type Tuple;
-    fn get_tuple(&'a self, index: usize) -> Self::Tuple;
+    type ProductOptRef;
+    fn get_product(&'a self, index: usize) -> Self::ProductOptRef;
 }
 
 impl<'a, Head, Tail> RowTuple<'a> for HCons<Head, Tail>
@@ -708,50 +399,16 @@ where
     Head::Output: 'a,
     Tail: RowTuple<'a>,
 {
-    type Tuple = (Option<&'a Head::Output>, Tail::Tuple);
-    fn get_tuple(&'a self, index: usize) -> Self::Tuple {
-        (self.head.get(index).unwrap(), self.tail.get_tuple(index))
+    type ProductOptRef = Product<Option<&'a Head::Output>, Tail::ProductOptRef>;
+    fn get_product(&'a self, index: usize) -> Self::ProductOptRef {
+        Product(self.head.get(index).unwrap(), self.tail.get_product(index))
     }
 }
 
 impl<'a> RowTuple<'a> for HNil {
-    type Tuple = ();
-    fn get_tuple(&'a self, _index: usize) -> Self::Tuple {
+    type ProductOptRef = ();
+    fn get_product(&'a self, _index: usize) -> Self::ProductOptRef {
         ()
-    }
-}
-
-// ### Flatten ###
-
-pub trait Flatten<'a> {
-    type Nested;
-    type Flattened;
-    fn unnest(nested: Self::Nested) -> Self::Flattened;
-}
-
-// TODO Implement this in a macro for all (many) frames
-impl<'a, T1, T2, T3> Flatten<'a> for Frame3<T1, T2, T3>
-where
-    T1: ColId + 'a,
-    T2: ColId + 'a,
-    T3: ColId + 'a,
-{
-    type Nested = (
-        Option<&'a <T3 as ColId>::Output>,
-        (
-            Option<&'a <T2 as ColId>::Output>,
-            (Option<&'a <T1 as ColId>::Output>, ()),
-        ),
-    );
-    type Flattened = (
-        Option<&'a <T1 as ColId>::Output>,
-        Option<&'a <T2 as ColId>::Output>,
-        Option<&'a <T3 as ColId>::Output>,
-    );
-
-    fn unnest(nested: Self::Nested) -> Self::Flattened {
-        let (opt3, (opt2, (opt1, ()))) = nested;
-        (opt1, opt2, opt3)
     }
 }
 
@@ -762,10 +419,10 @@ struct IterRows<'a, H: HList + 'a> {
 
 impl<'a, H> Iterator for IterRows<'a, H>
 where
-    H: HList + RowTuple<'a, Tuple = <Frame<H> as Flatten<'a>>::Nested>,
-    Frame<H>: Flatten<'a>,
+    H: HList + RowTuple<'a>,
+    <H as RowTuple<'a>>::ProductOptRef: Transformer,
 {
-    type Item = <Frame<H> as Flatten<'a>>::Flattened;
+    type Item = <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened;
     fn next(&mut self) -> Option<Self::Item> {
         match (*self.frame).get_row(self.index) {
             Some(r) => {
@@ -777,7 +434,7 @@ where
     }
 }
 
-// TODO this only single idents, ie "my string column" is not allowed
+// TODO this only works for single idents, ie "my string column" is not allowed
 #[macro_export]
 macro_rules! define_col {
     ($tyname:ident, $typ:ty) => {
