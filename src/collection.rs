@@ -7,7 +7,7 @@ use std::sync::Arc;
 use *; // TODO import only what's needed
 
 #[derive(Clone)]
-pub struct Collection<T>(Arc<CollectionInner<T>>);
+pub struct Collection<T>(CollectionInner<T>);
 
 #[derive(Clone)]
 struct CollectionInner<T> {
@@ -83,12 +83,12 @@ impl<T: Sized> Collection<T> {
     pub(crate) fn new(data: Array<T>) -> Collection<T> {
         // ManuallyDrop is a zero-cost wrapper so this should be safe
         let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Collection(Arc::new(CollectionInner {
+        Collection(CollectionInner {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
             data,
             index: RefCell::new(None),
-        }))
+        })
     }
 
     pub fn new_opt(dataiter: impl Iterator<Item = Option<T>>) -> Collection<T> {
@@ -96,28 +96,14 @@ impl<T: Sized> Collection<T> {
         let mut null_count = 0;
         let mut data = Vec::new();
         for v in dataiter {
-            match v {
-                Some(v) => {
-                    null_vec.push(true);
-                    data.push(ManuallyDrop::new(v));
-                }
-                None => {
-                    null_vec.push(false);
-                    null_count += 1;
-                    // TODO this is UB when we try to DROP it, will probably segfault
-                    // let scary: T = unsafe { ::std::mem::zeroed() };
-                    println!("push!");
-                    data.push(unsafe { ::std::mem::zeroed() });
-                    println!("pushed!");
-                }
-            }
+            push_maybe_null(v, &mut data, &mut null_vec, &mut null_count);
         }
-        Collection(Arc::new(CollectionInner {
+        Collection(CollectionInner {
             null_count,
             null_vec,
             data: Array::new(data),
             index: RefCell::new(None),
-        }))
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -138,6 +124,17 @@ impl<T: Sized> Collection<T> {
 
     pub fn has_index(&self) -> bool {
         self.0.index.borrow().is_some()
+    }
+
+    // This is unsafe at the moment because it will invalidate
+    // the index, if it exsts
+    pub(crate) unsafe fn push(&mut self, val: Option<T>) {
+        push_maybe_null(
+            val,
+            &mut self.0.data.0,
+            &mut self.0.null_vec,
+            &mut self.0.null_count,
+        )
     }
 
     /// Returns wrapped value, or None if null,
@@ -192,6 +189,28 @@ impl<T: Sized> Collection<T> {
         let data = &self.0.data;
         let nulls = &self.0.null_vec;
         iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
+    }
+}
+
+#[inline]
+fn push_maybe_null<T>(
+    val: Option<T>,
+    data: &mut Vec<ManuallyDrop<T>>,
+    null_vec: &mut BitVec,
+    null_count: &mut usize,
+) {
+    match val {
+        Some(v) => {
+            null_vec.push(true);
+            data.push(ManuallyDrop::new(v));
+        }
+        None => {
+            null_vec.push(false);
+            *null_count += 1;
+            // TODO this is UB when we try to DROP it, will probably segfault
+            let scary: T = unsafe { ::std::mem::zeroed() };
+            data.push(ManuallyDrop::new(scary))
+        }
     }
 }
 

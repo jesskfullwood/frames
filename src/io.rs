@@ -8,33 +8,50 @@ use csv;
 use serde::de::DeserializeOwned;
 
 use frame::{ColId, Frame};
-use hlist::{HCons, HList, HListExt, HNil, Transformer};
+use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
 use {Collection, Result};
 
-// pub fn read_csv<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
-//     let f = File::open(path)?;
-//     let f = BufReader::new(f);
-//     read_reader(f)
-// }
+pub fn read_csv<H, R>(path: impl AsRef<Path>) -> Result<Frame<H>>
+where
+    H: HList + Insertable,
+    H::Product: Transformer,
+    <H::Product as Transformer>::Flattened: DeserializeOwned,
+{
+    let f = File::open(path)?;
+    let f = BufReader::new(f);
+    read_reader(f)
+}
 
-// pub fn read_string<T: Readable>(data: &str) -> Result<T> {
-//     let cur = Cursor::new(data);
-//     read_reader(cur)
-// }
+pub fn read_string<H>(data: &str) -> Result<Frame<H>>
+where
+    H: HList + Insertable,
+    H::Product: Transformer,
+    <H::Product as Transformer>::Flattened: DeserializeOwned,
+{
+    let cur = Cursor::new(data);
+    read_reader(cur)
+}
 
 pub fn read_reader<R, H>(reader: R) -> Result<Frame<H>>
 where
-    H: HList,
-    H::Product: DeserializeOwned + Transformer,
+    H: HList + Insertable,
+    H::Product: Transformer,
+    <H::Product as Transformer>::Flattened: DeserializeOwned,
     R: Read,
 {
     let mut reader = csv::Reader::from_reader(reader);
-    let headers = reader.headers()?.clone();
+    // TODO check header names against frame names?
+    let _headers = reader.headers()?.clone();
+    let mut frame: Frame<H> = Frame::empty();
     for row in reader.deserialize() {
-        let row = row?;
+        let row: <H::Product as Transformer>::Flattened = row?;
+        let row = <H::Product as Transformer>::nest(row);
+        // Safe because there is no index yet
+        unsafe { frame.insert_row(row) };
     }
-    unimplemented!();
+    Ok(frame)
 }
+
 // let row1 = csviter.next().ok_or_else(|| format_err!("No data"))??;
 //     let mut columns: Vec<_> = row1
 //         .iter()
@@ -178,10 +195,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frame::test_fixtures::*;
+    use frame_alias::*;
 
-    use frame::test_fixtures::quickframe;
-
-    // TODO no string escaping
+    // TODO add string escaping
     #[test]
     fn test_write_writer() -> Result<()> {
         let mut w: Vec<u8> = Vec::new();
@@ -194,6 +211,19 @@ mod tests {
 4,2,words
 ";
         assert_eq!(expect, String::from_utf8_lossy(&w));
+        Ok(())
+    }
+
+    #[test]
+    fn test_reader_csv() -> Result<()> {
+        let expect = quickframe();
+        let csv = "int_col,float_col,string_col
+1,5,this
+2,4,is
+3,3,the
+4,2,words";
+        let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
+        assert_eq!(frame, expect);
         Ok(())
     }
 }

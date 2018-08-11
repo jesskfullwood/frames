@@ -81,6 +81,24 @@ impl<H: HList> Frame<H> {
         }
     }
 
+    pub(crate) fn empty() -> Self
+    where
+        H: Insertable,
+    {
+        Frame {
+            len: 0,
+            hlist: H::empty(),
+        }
+    }
+
+    pub(crate) unsafe fn insert_row(&mut self, product: H::Product)
+    where
+        H: Insertable,
+    {
+        self.hlist.insert(product);
+        self.len += 1;
+    }
+
     pub fn replace<Col: ColId, Index>(&mut self, newcol: Collection<Col::Output>)
     where
         H: Replacer<Col, Index>,

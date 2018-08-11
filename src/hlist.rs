@@ -57,7 +57,7 @@ where
     Head: ColId,
     Tail: HList,
 {
-    type Product = Product<Head::Output, Tail::Product>;
+    type Product = Product<Option<Head::Output>, Tail::Product>;
     const SIZE: usize = 1 + <Tail as HList>::SIZE;
     const IS_ROOT: bool = false;
 }
@@ -324,6 +324,35 @@ where
     }
 }
 
+// ### Insertable
+
+pub trait Insertable: HList {
+    fn empty() -> Self;
+    unsafe fn insert(&mut self, product: Self::Product);
+}
+
+impl<Head, Tail> Insertable for HCons<Head, Tail>
+where
+    Head: ColId,
+    Tail: HList + Insertable,
+{
+    fn empty() -> Self {
+        <Tail as Insertable>::empty().addcol(Vec::new())
+    }
+    unsafe fn insert(&mut self, product: Self::Product) {
+        let Product(val, rest) = product;
+        self.head.push(val);
+        self.tail.insert(rest);
+    }
+}
+
+impl Insertable for HNil {
+    fn empty() -> Self {
+        HNil
+    }
+    unsafe fn insert(&mut self, product: ()) {}
+}
+
 // ### Transformer ###
 
 pub trait Transformer {
@@ -334,6 +363,8 @@ pub trait Transformer {
 
 // TODO implement for other ProductN (with macro)
 type Product3<T1, T2, T3> = Product<T3, Product<T2, Product<T1, ()>>>;
+type Product2<T1, T2> = Product<T2, Product<T1, ()>>;
+type Product1<T1> = Product<T1, ()>;
 
 impl<T1, T2, T3> Transformer for Product3<T1, T2, T3> {
     type Flattened = (T1, T2, T3);
@@ -344,5 +375,29 @@ impl<T1, T2, T3> Transformer for Product3<T1, T2, T3> {
     fn flatten(self) -> Self::Flattened {
         let Product(t3, Product(t2, Product(t1, ()))) = self;
         (t1, t2, t3)
+    }
+}
+
+impl<T1, T2> Transformer for Product2<T1, T2> {
+    type Flattened = (T1, T2);
+    fn nest(flat: Self::Flattened) -> Self {
+        let (t1, t2) = flat;
+        Product(t2, Product(t1, ()))
+    }
+    fn flatten(self) -> Self::Flattened {
+        let Product(t2, Product(t1, ())) = self;
+        (t1, t2)
+    }
+}
+
+impl<T1> Transformer for Product1<T1> {
+    type Flattened = (T1,);
+    fn nest(flat: Self::Flattened) -> Self {
+        let (t1,) = flat;
+        Product(t1, ())
+    }
+    fn flatten(self) -> Self::Flattened {
+        let Product(t1, ()) = self;
+        (t1,)
     }
 }
