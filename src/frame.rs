@@ -1,7 +1,7 @@
 use column::{Column, Mask};
 pub use frame_alias::*;
 use hlist::*;
-use id;
+use {id, IndexVec};
 
 use std::hash::Hash;
 
@@ -362,7 +362,7 @@ where
 
 pub struct GroupBy<H: HList, G: HList> {
     frame: Frame<H>,
-    grouping_index: Vec<Vec<usize>>,
+    grouping_index: Vec<IndexVec>,
     grouped_frame: Frame<G>,
 }
 
@@ -483,12 +483,12 @@ pub(crate) mod test_fixtures {
 
     pub(crate) fn quickframe() -> Data3 {
         Frame::new()
-            .addcol(vec![1, 2, 3, 4])
+            .addcol(Column::new(vec![Some(1), Some(2), None, Some(3), Some(4)]))
             .unwrap()
-            .addcol(vec![5., 4., 3., 2.])
+            .addcol(Column::new(vec![Some(5.), None, Some(3.), Some(2.), Some(1.)]))
             .unwrap()
             .addcol(
-                r#"this,'" is the words"#
+                r#"this,'" is the words here"#
                     .split(' ')
                     .map(String::from)
                     .collect::<Vec<_>>(),
@@ -502,6 +502,7 @@ pub(crate) mod tests {
     use super::test_fixtures::*;
     use super::*;
 
+    // TODO convenient column literal macro
     #[test]
     fn test_basic_frame() -> Result<()> {
         let f: Data3 = Frame::new()
@@ -591,7 +592,7 @@ pub(crate) mod tests {
         let f2 = f.filter::<IntT, _, _>(|&v| v > 2);
         assert_eq!(f2.len(), 2);
         assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
-        assert_eq!(f2.get::<FloatT, _>(), &[3., 2.]);
+        assert_eq!(f2.get::<FloatT, _>(), &[2., 1.]);
     }
 
     #[test]
@@ -619,7 +620,7 @@ pub(crate) mod tests {
     fn test_map_replace() {
         let f = quickframe();
         let f2 = f.map_replace_notnull::<FloatT, FloatT, _, _>(|&v| v * v);
-        assert_eq!(f2.get::<FloatT, _>(), &[25., 16., 9., 4.]);
+        assert_eq!(f2.get::<FloatT, _>(), &Column::new(vec![Some(25.), None, Some(9.), Some(4.), Some(1.)]));
     }
 
     #[test]

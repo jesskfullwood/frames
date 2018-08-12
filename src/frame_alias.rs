@@ -1,37 +1,86 @@
 use frame::Frame;
-use hlist::{HCons, HNil};
+use hlist::{HCons, HNil, Product, Transformer};
+
+pub type Frame0 = Frame<HNil>;
 
 macro_rules! frame_alias {
-    ($($frames:ident),+ -> $typFirst:ident, $($typsNext:ident),*) => { // start things off
-        pub type Frame0 = Frame<HNil>;
+    ($($frames:ident),+ -> $typFirst:ident, $($typsNext:ident),*) => {
+        // start things off
         frame_alias!($($frames)* -> [ $typFirst ] $($typsNext)*);
     };
     ($frame:ident $($frames:ident)* -> [$($typsCur:ident)+] $typNext:ident $($typsFut:ident)*) => {
-        pub type $frame<$($typsCur,)*> = Frame<cons!([$($typsCur)*])>;
+        frame_def!($frame $($typsCur)*);
         frame_alias!($($frames)* -> [ $($typsCur)* $typNext ] $($typsFut)*);
+        transformer_impl!($($typsCur)+);
     };
     ($frame:ident -> [$($typsCur:ident)+]) => {
-        pub type $frame<$($typsCur,)*> = Frame<cons!([$($typsCur)*])>;
+        frame_def!($frame $($typsCur)+);
+        transformer_impl!($($typsCur)+);
     }
 }
 
-macro_rules! cons_disp {
-    () => {};
-    ($typ: ident) => {
-        HCons<$typ, HNil>
+macro_rules! transformer_impl {
+    ($($typs:ident)+) => {
+        impl<$($typs,)+> Transformer for macro_revargs!(product $($typs)+) {
+            type Flattened = ($($typs,)+);
+            #[allow(non_snake_case)]
+            fn nest(flat: Self::Flattened) -> Self {
+                let ($($typs,)+) = flat;
+                macro_revargs!(product_paren $($typs)+)
+            }
+            #[allow(non_snake_case)]
+            fn flatten(self) -> Self::Flattened {
+                let macro_revargs!(product_paren $($typs)+) = self;
+                ($($typs,)+)
+            }
+        }
+    }
+}
+
+macro_rules! macro_revargs {
+    ($macro:ident $($args:ident)*) => {
+        macro_revargs!($macro [$($args)*])
     };
-    ($typFront:ident $($typs:ident)+) => {
-        HCons<$typFront, cons_disp!($($typs)*)>
+    ($macro:ident [$reverse:ident $($to_reverse:ident)*] $($reversed:ident)*) => {
+        macro_revargs!($macro [$($to_reverse)*] $reverse $($reversed)*)
+    };
+    ($macro:ident [] $($reversed:ident)*) => {
+        $macro!($($reversed)*)
+    };
+}
+
+macro_rules! frame_def {
+    ($frame:ident $($typsCur:ident)+) => {
+        pub type $frame<$($typsCur,)+> = Frame<macro_revargs!(cons $($typsCur)+)>;
     }
 }
 
 macro_rules! cons {
-    ([] $($typs:ident)*) => {
-        cons_disp!($($typs)*)
+    ($typ: ident) => {
+        HCons<$typ, HNil>
     };
-    ([$first:ident $($rest:ident)*] $($reversed:ident)*) => {
-        cons!([$($rest)*] $first $($reversed)*)
+    ($typ_front:ident $($typs:ident)+) => {
+        HCons<$typ_front, cons!($($typs)+)>
+    }
+}
+
+macro_rules! product {
+    ($typ: ident) => {
+        Product<$typ, ()>
     };
+    ($typ_front:ident $($typs:ident)+) => {
+        Product< $typ_front , product!($($typs)+)>
+    }
+}
+
+
+macro_rules! product_paren {
+    ($typ: ident) => {
+        Product($typ, ())
+    };
+    ($typ_front:ident $($typs:ident)+) => {
+        Product($typ_front, product_paren!($($typs)+))
+    }
 }
 
 frame_alias!(

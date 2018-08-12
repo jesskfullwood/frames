@@ -8,6 +8,7 @@ extern crate num;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate smallvec;
 extern crate ordered_float;
 
 use std::collections::HashMap;
@@ -25,7 +26,9 @@ pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
-type IndexMap<T> = HashMap<T, Vec<usize>>;
+// TODO benchmark smallvec vs Vec
+type IndexVec = smallvec::SmallVec<[usize; 2]>;
+type IndexMap<T> = HashMap<T, IndexVec>;
 
 // TODO Pretty-printing of Frame
 

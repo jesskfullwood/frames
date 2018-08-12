@@ -10,8 +10,9 @@ use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use {id, Array, IndexMap, StdResult};
+use {id, Array, IndexMap, IndexVec, StdResult};
 
+// TODO Bring back Arc!
 #[derive(Clone)]
 pub struct Column<T>(ColumnInner<T>);
 
@@ -50,7 +51,7 @@ impl<T, I: IntoIterator<Item = T>> From<I> for Column<T> {
 // }
 
 impl<T: PartialEq> PartialEq for Column<T> {
-    // We don't care if the indexes are the same
+    // We don't care whether the index exists so need custom impl
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;
@@ -63,6 +64,23 @@ impl<T: PartialEq> PartialEq for Column<T> {
                 (None, Some(_)) => false,
                 (Some(v1), Some(v2)) => v1 == v2,
             })
+    }
+}
+
+impl<A, T> PartialEq<A> for Column<T>
+where
+    A: AsRef<[T]>,
+    T: PartialEq,
+{
+    fn eq(&self, other: &A) -> bool {
+        let slice: &[T] = other.as_ref();
+        if self.count_null() > 0 || self.len() != slice.len() {
+            return false;
+        }
+        self.iter()
+            .filter_map(id)
+            .zip(slice.iter())
+            .all(|(l, r)| l == r)
     }
 }
 
@@ -221,24 +239,6 @@ fn push_maybe_null<T>(
     }
 }
 
-// We don't care whether the index exists so need custom impl
-impl<A, T> PartialEq<A> for Column<T>
-where
-    A: AsRef<[T]>,
-    T: PartialEq,
-{
-    fn eq(&self, other: &A) -> bool {
-        let slice: &[T] = other.as_ref();
-        if self.count_null() > 0 || self.len() != slice.len() {
-            return false;
-        }
-        self.iter()
-            .filter_map(id)
-            .zip(slice.iter())
-            .all(|(l, r)| l == r)
-    }
-}
-
 impl<T: Clone> Column<T> {
     /// Create new Column taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Column<T> {
@@ -261,7 +261,7 @@ impl<T: Clone> Column<T> {
     // TODO This basically exists to help with doing group-bys
     // might be a way to do things faster/more cleanly
     // It is guaranteed that each Vec<usize> is nonempty
-    pub(crate) fn copy_first_locs(&self, locs: &[Vec<usize>]) -> Column<T> {
+    pub(crate) fn copy_first_locs(&self, locs: &[IndexVec]) -> Column<T> {
         let data: Vec<_> = locs
             .iter()
             .map(|inner| {
@@ -286,27 +286,26 @@ impl<T: Clone> Column<T> {
 }
 
 impl<T: Hash + Clone + Eq> Column<T> {
-    // TODO Question: Should to location of nulls be indexed?
-    // I think not - we already have the bit-vec
+    // TODO this seems to be very slow??
     pub fn build_index(&self) {
         if self.has_index() {
             return;
         }
-        let mut index = IndexMap::new();
+        let mut index = IndexMap::with_capacity(self.len());
         for (ix, d) in self
             .iter()
             .enumerate()
             .filter_map(|(ix, d)| d.map(|d| (ix, d)))
         {
-            let entry = index.entry(d.clone()).or_insert_with(Vec::new);
+            let entry = index.entry(d.clone()).or_insert_with(IndexVec::default);
             entry.push(ix)
         }
+        index.shrink_to_fit(); // we aren't touching this again
         *self.0.index.borrow_mut() = Some(index);
     }
 
     pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
         other.build_index();
-
         let rborrow = other.0.index.borrow();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
@@ -425,7 +424,8 @@ impl<T: Hash + Clone + Eq> Column<T> {
         (leftout, rightout)
     }
 
-    pub(crate) fn index_values(&self) -> Vec<Vec<usize>> {
+    // TODO this seems very inefficient, what is it for?
+    pub(crate) fn index_values(&self) -> Vec<IndexVec> {
         self.build_index();
         let borrow = self.0.index.borrow();
         let colix = borrow.as_ref().unwrap();

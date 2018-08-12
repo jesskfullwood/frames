@@ -183,9 +183,10 @@ mod tests {
         let _ = f.write_writer(&mut w)?;
         let expect = r#"int_col,float_col,string_col
 1,5,"this,'"""
-2,4,is
-3,3,the
-4,2,words
+2,,is
+,3,the
+3,2,words
+4,1,here
 "#;
         assert_eq!(expect, String::from_utf8_lossy(&w));
         Ok(())
@@ -196,9 +197,10 @@ mod tests {
         let expect = quickframe();
         let csv = r#"int_col,float_col,string_col
 1,5,"this,'"""
-2,4,is
-3,3,the
-4,2,words
+2,,is
+,3,the
+3,2,words
+4,1,here
 "#;
         let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
         assert_eq!(frame, expect);
