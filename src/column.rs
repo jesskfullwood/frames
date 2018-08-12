@@ -500,6 +500,30 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     }
 }
 
+// TODO document usage
+#[macro_export]
+macro_rules! col {
+    ($($vals:tt),*) => {
+        {
+            let mut v = Vec::new();
+            $(
+                let val = wrap_val!($vals);
+                v.push(val);
+            )*
+            Column::new(v)
+        }
+    }
+}
+
+macro_rules! wrap_val {
+    (None) => {
+        None
+    };
+    ($val:tt) => {
+        Some($val)
+    };
+}
+
 pub struct Mask {
     mask: Column<bool>,
     true_count: usize,
@@ -586,5 +610,14 @@ mod tests {
         // contains nulls -> segfaults!
         let c2 = Column::new(vec![Some(Rc::new(1)), None]);
         drop(c2);
+    }
+
+    #[test]
+    fn test_col_macro() {
+        let c = col![1, 2, 3, None, 4];
+        assert_eq!(
+            c,
+            Column::new(vec![Some(1), Some(2), Some(3), None, Some(4)])
+        );
     }
 }

@@ -483,9 +483,9 @@ pub(crate) mod test_fixtures {
 
     pub(crate) fn quickframe() -> Data3 {
         Frame::new()
-            .addcol(Column::new(vec![Some(1), Some(2), None, Some(3), Some(4)]))
+            .addcol(col![1, 2, None, 3, 4])
             .unwrap()
-            .addcol(Column::new(vec![Some(5.), None, Some(3.), Some(2.), Some(1.)]))
+            .addcol(col![5., None, 3., 2., 1.])
             .unwrap()
             .addcol(
                 r#"this,'" is the words here"#
@@ -494,7 +494,6 @@ pub(crate) mod test_fixtures {
                     .collect::<Vec<_>>(),
             ).unwrap()
     }
-
 }
 
 #[cfg(test)]
@@ -620,7 +619,7 @@ pub(crate) mod tests {
     fn test_map_replace() {
         let f = quickframe();
         let f2 = f.map_replace_notnull::<FloatT, FloatT, _, _>(|&v| v * v);
-        assert_eq!(f2.get::<FloatT, _>(), &Column::new(vec![Some(25.), None, Some(9.), Some(4.), Some(1.)]));
+        assert_eq!(f2.get::<FloatT, _>(), &col![25., None, 9., 4., 1.]);
     }
 
     #[test]
@@ -628,46 +627,29 @@ pub(crate) mod tests {
         // TODO parse a text string once reading csvs is implemented
         let f1 = quickframe();
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Column::new(vec![Some(3), None, Some(2), Some(2)]))?
-            .addcol(Column::new(vec![
-                None,
-                Some(false),
-                Some(true),
-                Some(false),
-            ]))?;
+            .addcol(col![3, None, 2, 2])?
+            .addcol(col![None, false, true, false])?;
         let f3 = f1.inner_join::<IntT, IntT, _, _, _>(&f2);
         assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
-        assert_eq!(
-            f3.get::<BoolT, _>(),
-            &Column::new(vec![Some(true), Some(false), None])
-        );
+        assert_eq!(f3.get::<BoolT, _>(), &col![true, false, None]);
         Ok(())
     }
 
     #[test]
     fn test_left_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(Column::new(vec![Some(3), None, Some(2), Some(2)]))?
-            .addcol(Column::new(vec![None, Some(5.), Some(4.), Some(3.)]))?;
+            .addcol(col![3, None, 2, 2])?
+            .addcol(col![None, 5., 4., 3.])?;
 
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Column::new(vec![Some(2), Some(2), None, Some(1), Some(3)]))?
-            .addcol(Column::new(vec![
-                None,
-                Some(false),
-                Some(true),
-                Some(false),
-                None,
-            ]))?;
+            .addcol(col![2, 2, None, 1, 3])?
+            .addcol(col![None, false, true, false, None])?;
 
         let f3 = f1.left_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(
-            f3.get::<IntT, _>(),
-            &Column::new(vec![Some(3), None, Some(2), Some(2), Some(2), Some(2)])
-        );
+        assert_eq!(f3.get::<IntT, _>(), &col![3, None, 2, 2, 2, 2]);
         assert_eq!(
             f3.get::<BoolT, _>(),
-            &Column::new(vec![None, None, None, Some(false), None, Some(false)])
+            &col![None, None, None, false, None, false]
         );
         Ok(())
     }
@@ -684,40 +666,32 @@ pub(crate) mod tests {
     #[test]
     fn test_outer_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(Column::new(vec![Some(3), None, Some(2), None]))?
-            .addcol(Column::new(vec![Some(1.), Some(2.), None, Some(3.)]))?;
+            .addcol(col![3, None, 2, None])?
+            .addcol(col![1., 2., None, 3.])?;
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(Column::new(vec![None, Some(3), Some(3), Some(2), Some(5)]))?
-            .addcol(Column::new(vec![
-                Some(true),
-                None,
-                Some(false),
-                Some(true),
-                None,
-            ]))?;
+            .addcol(col![None, 3, 3, 2, 5])?
+            .addcol(col![true, None, false, true, None])?;
         let f3 = f1.outer_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(
-            f3.get::<IntT, _>(),
-            &Column::new(vec![Some(3), Some(3), None, Some(2), None, None, Some(5)])
-        );
+        assert_eq!(f3.get::<IntT, _>(), &col![3, 3, None, 2, None, None, 5]);
         Ok(())
     }
 
     #[test]
     fn test_iter_rows() {
         let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
-            .addcol(vec![1, 2])
+            .addcol(col![1, 2, None])
             .unwrap()
-            .addcol(vec![5., 4.])
+            .addcol(col![None, 5., 4.])
             .unwrap()
-            .addcol(vec![false, true])
+            .addcol(col![false, None, true])
             .unwrap();
         let rows: Vec<(Option<&i64>, Option<&f64>, Option<&bool>)> = f.iter_rows().collect();
         assert_eq!(
             rows,
             vec![
-                (Some(&1), Some(&5.), Some(&false)),
-                (Some(&2), Some(&4.), Some(&true))
+                (Some(&1), None, Some(&false)),
+                (Some(&2), Some(&5.), None),
+                (None, Some(&4.), Some(&true))
             ]
         );
     }

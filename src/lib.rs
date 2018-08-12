@@ -8,8 +8,8 @@ extern crate num;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate smallvec;
 extern crate ordered_float;
+extern crate smallvec;
 
 use std::collections::HashMap;
 use std::ops::Index;
@@ -18,6 +18,7 @@ pub use column::Column;
 pub use frame::{ColId, Frame};
 pub use io::read_csv;
 
+#[macro_escape]
 pub mod column;
 pub mod frame;
 mod frame_alias;

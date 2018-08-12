@@ -73,7 +73,6 @@ macro_rules! product {
     }
 }
 
-
 macro_rules! product_paren {
     ($typ: ident) => {
         Product($typ, ())
