@@ -515,6 +515,7 @@ macro_rules! col {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! wrap_val {
     (None) => {
         None

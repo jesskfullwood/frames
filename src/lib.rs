@@ -18,7 +18,7 @@ pub use column::Column;
 pub use frame::{ColId, Frame};
 pub use io::read_csv;
 
-#[macro_escape]
+#[macro_use]
 pub mod column;
 pub mod frame;
 mod frame_alias;

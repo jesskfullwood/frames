@@ -462,7 +462,8 @@ macro_rules! define_col {
     };
     ($tyname:ident, $typ:ty, $name:ident) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        pub struct $tyname;
+        // This type is just a marker and cannot be instantiated
+        pub enum $tyname {}
         impl ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;
