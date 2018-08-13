@@ -1,4 +1,4 @@
-use column::{Column, ColId, NamedColumn, Mask};
+use column::{ColId, Column, Mask, NamedColumn};
 pub use frame_alias::*;
 use hlist::*;
 use {id, IndexVec};
@@ -21,7 +21,7 @@ use Result;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     pub(crate) hlist: H,
-    len: usize,
+    pub(crate) len: usize,
 }
 
 impl Frame<HNil> {
@@ -38,7 +38,10 @@ impl<T: ColId> Frame<HCons<T, HNil>> {
         let col = col.into();
         Frame {
             len: col.len(),
-            hlist: HCons { head: col, tail:HNil },
+            hlist: HCons {
+                head: col,
+                tail: HNil,
+            },
         }
     }
 }
@@ -90,24 +93,6 @@ impl<H: HList> Frame<H> {
                 hlist: self.hlist.prepend(coll),
             })
         }
-    }
-
-    pub(crate) fn empty() -> Self
-    where
-        H: Insertable,
-    {
-        Frame {
-            len: 0,
-            hlist: H::empty(),
-        }
-    }
-
-    pub(crate) unsafe fn insert_row(&mut self, product: H::Product)
-    where
-        H: Insertable,
-    {
-        self.hlist.insert(product);
-        self.len += 1;
     }
 
     pub fn replace<Col: ColId, Index>(&mut self, newcol: NamedColumn<Col>)
@@ -343,7 +328,7 @@ where
     }
 
     // pub fn reshape<Shaped>(&self) -> Frame<Shaped>
-    //     where Shaped: 
+    //     where Shaped:
     // {
 
     // }

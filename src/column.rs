@@ -50,7 +50,7 @@ pub trait ColId {
 }
 
 #[derive(Clone)]
-pub struct Column<T>(ColumnInner<T>);
+pub struct Column<T>(Arc<ColumnInner<T>>);
 
 impl<T: ColId> Deref for NamedColumn<T> {
     type Target = Column<T::Output>;
@@ -171,24 +171,24 @@ impl<T: Sized> Column<T> {
         for v in data {
             push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
         }
-        Column(ColumnInner {
+        Column(Arc::new(ColumnInner {
             null_count,
             null_vec,
             data: Array::new(arr),
             index: RefCell::new(None),
-        })
+        }))
     }
 
     pub fn new_notnull(data: impl IntoIterator<Item = T>) -> Column<T> {
         // ManuallyDrop is a zero-cost wrapper so this should be safe
         let data = Array(data.into_iter().collect());
         let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Column(ColumnInner {
+        Column(Arc::new(ColumnInner {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
             data,
             index: RefCell::new(None),
-        })
+        }))
     }
 
     pub fn len(&self) -> usize {
@@ -213,14 +213,14 @@ impl<T: Sized> Column<T> {
 
     // This is unsafe at the moment because it will invalidate
     // the index, if it exsts
-    pub(crate) unsafe fn push(&mut self, val: Option<T>) {
-        push_maybe_null(
-            val,
-            &mut self.0.data.0,
-            &mut self.0.null_vec,
-            &mut self.0.null_count,
-        )
-    }
+    // pub(crate) unsafe fn push(&mut self, val: Option<T>) {
+    //     push_maybe_null(
+    //         val,
+    //         &mut self.0.data.0,
+    //         &mut self.0.null_vec,
+    //         &mut self.0.null_count,
+    //     )
+    // }
 
     /// Returns wrapped value, or None if null,
     /// wrapped in bounds-check
@@ -367,7 +367,7 @@ impl<T: Hash + Clone + Eq> Column<T> {
     pub fn uniques(&self) -> UniqueIter<T> {
         self.build_index();
         UniqueIter {
-            r: Ref::map(self.0.index.borrow(),|o| o.as_ref().unwrap())
+            r: Ref::map(self.0.index.borrow(), |o| o.as_ref().unwrap()),
         }
     }
 

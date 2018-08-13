@@ -5,13 +5,99 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use csv;
+use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use column::{Column, ColId};
+use column::{ColId, Column};
 use frame::{Frame, RowTuple};
-use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
+use hlist::{HCons as HConsFrame, HListExt, Transformer};
 use Result;
+
+// ### Reader implementation ###
+
+struct FrameBuilder<H: HList + Insertable> {
+    inner: H::VecList,
+    len: usize,
+}
+
+impl<H> FrameBuilder<H>
+where
+    H: HList + Insertable,
+{
+    fn new() -> Self {
+        FrameBuilder {
+            inner: H::empty(),
+            len: 0,
+        }
+    }
+
+    pub(crate) fn insert_row(&mut self, product: H::Product)
+    where
+        H: Insertable,
+    {
+        H::insert(&mut self.inner, product);
+        self.len += 1;
+    }
+
+    fn build(self) -> Frame<H> {
+        Frame {
+            hlist: H::to_frame(self.inner),
+            len: self.len,
+        }
+    }
+}
+
+// This is necessary to attach type parameter ColId to Vec
+pub struct VecWrap<C: ColId>(Vec<Option<C::Output>>);
+
+// ### Insertable
+
+pub trait Insertable {
+    type VecList: HList;
+    type Product;
+    fn empty() -> Self::VecList;
+    fn insert(&mut Self::VecList, product: Self::Product);
+    fn to_frame(Self::VecList) -> Self;
+}
+
+impl<Col, Tail> Insertable for HConsFrame<Col, Tail>
+where
+    Col: ColId,
+    Tail: HList + Insertable,
+{
+    type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
+    type VecList = HConsFrunk<VecWrap<Col>, Tail::VecList>;
+    fn empty() -> Self::VecList {
+        <Tail as Insertable>::empty().prepend(VecWrap(Vec::new()))
+    }
+    fn insert(fb: &mut Self::VecList, product: Self::Product) {
+        let HConsFrunk {
+            head: val,
+            tail: rest,
+        } = product;
+        fb.head.0.push(val);
+        Tail::insert(&mut fb.tail, rest);
+    }
+    fn to_frame(fb: Self::VecList) -> Self {
+        HConsFrame {
+            head: fb.head.0.into(),
+            tail: Tail::to_frame(fb.tail),
+        }
+    }
+}
+
+impl Insertable for HNil {
+    type Product = HNil;
+    type VecList = HNil;
+    fn empty() -> Self::VecList {
+        HNil
+    }
+    fn insert(_fb: &mut Self::VecList, _product: Self::Product) {}
+    fn to_frame(_fb: Self::VecList) -> Self {
+        HNil
+    }
+}
 
 pub fn read_csv<H>(path: impl AsRef<Path>) -> Result<Frame<H>>
 where
@@ -44,14 +130,14 @@ where
     let mut reader = csv::Reader::from_reader(reader);
     // TODO check header names against frame names?
     let _headers = reader.headers()?.clone();
-    let mut frame: Frame<H> = Frame::empty();
+    let mut builder: FrameBuilder<H> = FrameBuilder::new();
     for row in reader.deserialize() {
         let row: <H::Product as Transformer>::Flattened = row?;
         let row = <H::Product as Transformer>::nest(row);
         // Safe because there is no index yet
-        unsafe { frame.insert_row(row) };
+        builder.insert_row(row);
     }
-    Ok(frame)
+    Ok(builder.build())
 }
 
 pub trait WriteBuffer: Sized {
@@ -89,7 +175,7 @@ pub trait WriteToBuffer {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)>;
 }
 
-impl<Col, Tail> WriteToBuffer for HCons<Col, Tail>
+impl<Col, Tail> WriteToBuffer for HConsFrame<Col, Tail>
 where
     Col: ColId,
     Column<Col::Output>: WriteBuffer,

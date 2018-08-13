@@ -1,4 +1,4 @@
-use column::{ColId, NamedColumn, Mask};
+use column::{ColId, Mask, NamedColumn};
 pub use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
 pub use frunk::indices::{Here, There};
 
@@ -206,38 +206,6 @@ where
             tail: self.tail.map_replace_notnull(func),
         }
     }
-}
-
-// ### Insertable
-
-pub trait Insertable: HListExt {
-    fn empty() -> Self;
-    unsafe fn insert(&mut self, product: Self::Product);
-}
-
-impl<Col, Tail> Insertable for HCons<Col, Tail>
-where
-    Col: ColId,
-    Tail: Insertable,
-{
-    fn empty() -> Self {
-        <Tail as Insertable>::empty().prepend(Vec::new().into())
-    }
-    unsafe fn insert(&mut self, product: Self::Product) {
-        let HConsFrunk {
-            head: val,
-            tail: rest,
-        } = product;
-        self.head.push(val);
-        self.tail.insert(rest);
-    }
-}
-
-impl Insertable for HNil {
-    fn empty() -> Self {
-        HNil
-    }
-    unsafe fn insert(&mut self, _product: HNil) {}
 }
 
 // ### Transformer ###
