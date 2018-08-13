@@ -496,7 +496,8 @@ where
 {
     // TODO Accumulate WITHOUT nulls
     // Also need an acc WITH nulls
-    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
+    // Also this is very inefficient and uses iterate_indices which is also inefficient
+    pub fn accumulate<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
     where
         Col: ColId,
         NewCol: ColId,
@@ -522,6 +523,17 @@ where
             grouping_index: self.grouping_index,
             grouped_frame,
         }
+    }
+
+    /// Shorthand for accumulate
+    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
+    where
+        Col: ColId,
+        NewCol: ColId,
+        H: Selector<NamedColumn<Col>, Index>,
+        AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
+    {
+        self.accumulate(func)
     }
 
     pub fn done(self) -> Frame<G> {

@@ -479,8 +479,8 @@ impl<T: Hash + Clone + Eq> Column<T> {
                             rightout.push(Some(rix));
                         }
                         Some(_) => {
-                            // we have a join, so there is nothing to be done
-                            // the second time round
+                            // we have a join, but have already dealt with it above
+                            // so there is nothing to be done the second time round
                         }
                     }
                 }
