@@ -11,6 +11,9 @@ heck = "0.3.0"
 
 [dev-dependencies]
 frames = { path = ".." }
+frunk = "0.2.0"
+frunk_derives = "0.2.0"
+frunk_core = "0.2.0"
 
 [lib]
 name = "frame_derive"

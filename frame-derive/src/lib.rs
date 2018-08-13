@@ -32,27 +32,31 @@ pub fn derive(input: TokenStream) -> TokenStream {
     };
     let typealias = ident(&format!("{}Frame", structid));
     let framealias = ident(&format!("Frame{}", fields.len()));
-    let frame_types: Vec<Ident> = fields.iter().map(|field| {
+    let colid_types: Vec<Ident> = fields.iter().map(|field| {
         let id = field.ident.as_ref().expect("Unnamed field").to_string();
         let cc = id.to_camel_case();
         ident(&cc)
     }).collect();
-    let frame_outtypes: Vec<_> = fields.iter().map(|field| {
+    let field_names: Vec<String> = fields.iter().map(|field| {
+        field.ident.as_ref().expect("Unnamed field").to_string()
+    }).collect();
+    let field_types: Vec<_> = fields.iter().map(|field| {
         field.ty.clone()
     }).collect();
     let modname = ident(&format!("{}", structid).to_snake_case());
-    let frame_types1 = frame_types.clone();
-    let frame_types2 = frame_types.clone();
-    let frame_types3 = frame_types.clone();
+    let colid_types1 = colid_types.clone();
+    let colid_types2 = colid_types.clone();
+    let colid_types3 = colid_types.clone();
     let codegen = quote! {
         mod #modname {
             #(
-                struct #frame_types1;
-                impl ::frames::frame::ColId for #frame_types2 {
-                    type Output = #frame_outtypes;
+                pub struct #colid_types1;
+                impl ::frames::ColId for #colid_types2 {
+                    const NAME: &'static str = #field_names;
+                    type Output = #field_types;
                 }
             )*
-            type #typealias = ::frames::frame::#framealias<#(#frame_types3),*>;
+            pub type #typealias = ::frames::frame::#framealias<#(#colid_types3),*>;
         }
     };
     codegen.into()

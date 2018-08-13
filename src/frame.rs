@@ -3,9 +3,11 @@ pub use frame_alias::*;
 use hlist::*;
 use {id, IndexVec};
 
+use frunk::generic::Generic;
 use frunk::hlist::{Plucker, Selector};
 
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 use Result;
 // The HList implementation is a modified version of the one found in the `frunk` crate.
@@ -366,6 +368,101 @@ where
             index: 0,
         }
     }
+
+    // pub fn iter_elems<T>(&'a self) -> impl Iterator<Item = T>
+    // where
+    //     <H::ProductOptRef as Transformer>::Flattened: Generic,
+    //     T: Generic<Repr = <<H::ProductOptRef as Transformer>::Flattened as Generic>::Repr>,
+    // {
+    //     IterElems {
+    //         frame: &self,
+    //         index: 0,
+    //         ret: PhantomData,
+    //     }
+    // }
+}
+
+// ### RowTuple ###
+
+pub trait RowTuple<'a> {
+    type ProductOptRef;
+    fn get_product(&'a self, index: usize) -> Self::ProductOptRef;
+}
+
+impl<'a, Head, Tail> RowTuple<'a> for HCons<Head, Tail>
+where
+    Head: ColId,
+    Head::Output: 'a,
+    Tail: RowTuple<'a>,
+{
+    type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
+    fn get_product(&'a self, index: usize) -> Self::ProductOptRef {
+        HConsFrunk {
+            head: self.head.get(index).unwrap(),
+            tail: self.tail.get_product(index),
+        }
+    }
+}
+
+impl<'a> RowTuple<'a> for HNil {
+    type ProductOptRef = HNil;
+    fn get_product(&'a self, _index: usize) -> Self::ProductOptRef {
+        HNil
+    }
+}
+
+struct IterRows<'a, H: HList + 'a> {
+    frame: &'a Frame<H>,
+    index: usize,
+}
+
+impl<'a, H> Iterator for IterRows<'a, H>
+where
+    H: HList + RowTuple<'a>,
+    H::ProductOptRef: Transformer,
+{
+    type Item = <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened;
+    fn next(&mut self) -> Option<Self::Item> {
+        match (*self.frame).get_row(self.index) {
+            Some(r) => {
+                self.index += 1;
+                Some(r)
+            }
+            None => None,
+        }
+    }
+}
+
+// TODO this needs more thought. Need to grab the relevent columns,
+// make a new HList from said columns, iterate over them, clone out the
+// values into a tuple and convert to struct
+
+// We could get rid of the RowTuples stuff as frunk already does it. Iterating
+// as a tuple could just be a particular instance of iterator over the generic
+struct IterElems<'a, H: HList + 'a, T> {
+    frame: &'a Frame<H>,
+    index: usize,
+    ret: PhantomData<T>,
+}
+
+impl<'a, H, T> Iterator for IterElems<'a, H, T>
+where
+    H: HList + RowTuple<'a>,
+    H::ProductOptRef: Transformer,
+    <H::ProductOptRef as Transformer>::Flattened: Generic,
+    T: Generic<Repr = <<H::ProductOptRef as Transformer>::Flattened as Generic>::Repr>,
+{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        // match (*self.frame).get_row(self.index) {
+        //     Some(r) => {
+        //         self.index += 1;
+        //         Some(r)
+        //     }
+        //     None => None,
+        // }
+        unimplemented!()
+    }
 }
 
 // ### GroupBy ###
@@ -413,57 +510,6 @@ where
 
     pub fn done(self) -> Frame<G> {
         self.grouped_frame
-    }
-}
-
-// ### RowTuple ###
-
-pub trait RowTuple<'a> {
-    type ProductOptRef;
-    fn get_product(&'a self, index: usize) -> Self::ProductOptRef;
-}
-
-impl<'a, Head, Tail> RowTuple<'a> for HCons<Head, Tail>
-where
-    Head: ColId,
-    Head::Output: 'a,
-    Tail: RowTuple<'a>,
-{
-    type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
-    fn get_product(&'a self, index: usize) -> Self::ProductOptRef {
-        HConsFrunk {
-            head: self.head.get(index).unwrap(),
-            tail: self.tail.get_product(index),
-        }
-    }
-}
-
-impl<'a> RowTuple<'a> for HNil {
-    type ProductOptRef = HNil;
-    fn get_product(&'a self, _index: usize) -> Self::ProductOptRef {
-        HNil
-    }
-}
-
-struct IterRows<'a, H: HList + 'a> {
-    frame: &'a Frame<H>,
-    index: usize,
-}
-
-impl<'a, H> Iterator for IterRows<'a, H>
-where
-    H: HList + RowTuple<'a>,
-    <H as RowTuple<'a>>::ProductOptRef: Transformer,
-{
-    type Item = <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened;
-    fn next(&mut self) -> Option<Self::Item> {
-        match (*self.frame).get_row(self.index) {
-            Some(r) => {
-                self.index += 1;
-                Some(r)
-            }
-            None => None,
-        }
     }
 }
 
