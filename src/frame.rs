@@ -1,4 +1,4 @@
-use column::{AnonColumn, ColId, Column, Mask};
+use column::{Column, ColId, NamedColumn, Mask};
 pub use frame_alias::*;
 use hlist::*;
 use {id, IndexVec};
@@ -34,7 +34,7 @@ impl Frame<HNil> {
 }
 
 impl<T: ColId> Frame<HCons<T, HNil>> {
-    pub fn with<I: Into<Column<T>>>(col: I) -> Self {
+    pub fn with<I: Into<NamedColumn<T>>>(col: I) -> Self {
         let col = col.into();
         Frame {
             len: col.len(),
@@ -66,10 +66,10 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline]
-    pub fn get<Col, Index>(&self) -> &Column<Col>
+    pub fn get<Col, Index>(&self) -> &NamedColumn<Col>
     where
         Col: ColId,
-        H: Selector<Column<Col>, Index>,
+        H: Selector<NamedColumn<Col>, Index>,
     {
         Selector::get(&self.hlist)
     }
@@ -79,7 +79,7 @@ impl<H: HList> Frame<H> {
     pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
         Col: ColId,
-        Data: Into<Column<Col>>,
+        Data: Into<NamedColumn<Col>>,
     {
         let coll = coll.into();
         if self.hlist.len() != 0 && coll.len() != self.len {
@@ -110,7 +110,7 @@ impl<H: HList> Frame<H> {
         self.len += 1;
     }
 
-    pub fn replace<Col: ColId, Index>(&mut self, newcol: Column<Col>)
+    pub fn replace<Col: ColId, Index>(&mut self, newcol: NamedColumn<Col>)
     where
         H: Replacer<Col, Index>,
     {
@@ -153,13 +153,13 @@ impl<H: HList> Frame<H> {
     pub fn extract<Col, Index>(
         self,
     ) -> (
-        Column<Col>,
-        Frame<<H as Plucker<Column<Col>, Index>>::Remainder>,
+        NamedColumn<Col>,
+        Frame<<H as Plucker<NamedColumn<Col>, Index>>::Remainder>,
     )
     where
         Col: ColId,
-        H: Plucker<Column<Col>, Index>,
-        <H as Plucker<Column<Col>, Index>>::Remainder: HList,
+        H: Plucker<NamedColumn<Col>, Index>,
+        <H as Plucker<NamedColumn<Col>, Index>>::Remainder: HList,
     {
         let (v, hlist) = self.hlist.pluck();
         (
@@ -202,18 +202,18 @@ where
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<Column<RCol>, RIx>
-            + Plucker<Column<RCol>, RIx>
+            + Selector<NamedColumn<RCol>, RIx>
+            + Plucker<NamedColumn<RCol>, RIx>
             + Concat<H>
             + HListClonable,
-        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<Column<LCol>, LIx>,
+        H: Selector<NamedColumn<LCol>, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -227,18 +227,18 @@ where
     pub fn left_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<Column<RCol>, RIx>
-            + Plucker<Column<RCol>, RIx>
+            + Selector<NamedColumn<RCol>, RIx>
+            + Plucker<NamedColumn<RCol>, RIx>
             + Concat<H>
             + HListClonable,
-        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<Column<LCol>, LIx>,
+        H: Selector<NamedColumn<LCol>, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -252,18 +252,18 @@ where
     pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<Column<RCol>, RIx>
-            + Plucker<Column<RCol>, RIx>
+            + Selector<NamedColumn<RCol>, RIx>
+            + Plucker<NamedColumn<RCol>, RIx>
             + Concat<H>
             + HListClonable,
-        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<Column<LCol>, LIx> + Replacer<LCol, LIx>,
+        H: Selector<NamedColumn<LCol>, LIx> + Replacer<LCol, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -273,7 +273,7 @@ where
         let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
         let joined = {
             let ljoined = leftframe.get::<LCol, _>();
-            Column::from(AnonColumn::new(
+            NamedColumn::from(Column::new(
                 ljoined
                     .iter()
                     .zip(rjoined.iter())
@@ -302,7 +302,7 @@ where
     where
         Col: ColId,
         F: Fn(&Col::Output) -> bool,
-        H: Selector<Column<Col>, Index>,
+        H: Selector<NamedColumn<Col>, Index>,
     {
         // TODO also add filter2, filter3...
         let mask = self.get::<Col, _>().mask(func);
@@ -324,7 +324,7 @@ where
     where
         Col: ColId,
         Col::Output: Eq + Clone + Hash,
-        H: Selector<Column<Col>, Index>,
+        H: Selector<NamedColumn<Col>, Index>,
     {
         let (grouping_index, grouped_col) = {
             // lifetimes workaround
@@ -341,11 +341,17 @@ where
             grouped_frame,
         }
     }
+
+    // pub fn reshape<Shaped>(&self) -> Frame<Shaped>
+    //     where Shaped: 
+    // {
+
+    // }
 }
 
 impl<Col: ColId, Tail: HList> Frame<HCons<Col, Tail>> {
     #[inline(always)]
-    pub fn pop(self) -> (Column<Col>, Frame<Tail>) {
+    pub fn pop(self) -> (NamedColumn<Col>, Frame<Tail>) {
         let tail = Frame {
             hlist: self.hlist.tail,
             len: self.len,
@@ -494,7 +500,7 @@ where
     where
         Col: ColId,
         NewCol: ColId,
-        H: Selector<Column<Col>, Index>,
+        H: Selector<NamedColumn<Col>, Index>,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
         let res: Vec<NewCol::Output> = {
@@ -510,7 +516,7 @@ where
                     func(&to_acc)
                 }).collect()
         };
-        let grouped_frame = self.grouped_frame.addcol(Column::with(res)).unwrap();
+        let grouped_frame = self.grouped_frame.addcol(NamedColumn::with(res)).unwrap();
         GroupBy {
             frame: self.frame,
             grouping_index: self.grouping_index,
@@ -521,23 +527,6 @@ where
     pub fn done(self) -> Frame<G> {
         self.grouped_frame
     }
-}
-
-// TODO this only works for single idents, ie "my string column" is not allowed
-#[macro_export]
-macro_rules! define_col {
-    ($tyname:ident, $typ:ty) => {
-        define_col!($tyname, $typ, $tyname);
-    };
-    ($tyname:ident, $typ:ty, $name:ident) => {
-        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        // This type is just a marker and cannot be instantiated
-        pub enum $tyname {}
-        impl ColId for $tyname {
-            const NAME: &'static str = stringify!($name);
-            type Output = $typ;
-        }
-    };
 }
 
 #[cfg(test)]
@@ -763,4 +752,11 @@ pub(crate) mod tests {
             ],
         );
     }
+
+    // #[test]
+    // fn test_ad_hoc_iter() {
+    //     let f = quickframe();
+    //     let iter = f.iter_rows::<(IntT, FloatT, IntT)>();
+    //     assert_eq!(iter.next(), Some((Some(&1), Some(&5.), Some("this,'\"".to_string()))));
+    // }
 }

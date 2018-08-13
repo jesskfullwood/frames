@@ -8,7 +8,7 @@ use csv;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use column::{AnonColumn, ColId};
+use column::{Column, ColId};
 use frame::{Frame, RowTuple};
 use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
 use Result;
@@ -59,7 +59,7 @@ pub trait WriteBuffer: Sized {
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>);
 }
 
-impl<T> WriteBuffer for AnonColumn<T>
+impl<T> WriteBuffer for Column<T>
 where
     T: Display,
 {
@@ -92,7 +92,7 @@ pub trait WriteToBuffer {
 impl<Col, Tail> WriteToBuffer for HCons<Col, Tail>
 where
     Col: ColId,
-    AnonColumn<Col::Output>: WriteBuffer,
+    Column<Col::Output>: WriteBuffer,
     Tail: HList + WriteToBuffer,
 {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)> {

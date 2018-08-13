@@ -13,7 +13,7 @@ extern crate smallvec;
 use std::collections::HashMap;
 use std::ops::Index;
 
-pub use column::{ColId, Column};
+pub use column::{ColId, Column, NamedColumn};
 pub use frame::Frame;
 pub use io::read_csv;
 

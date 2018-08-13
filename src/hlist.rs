@@ -1,8 +1,8 @@
-use column::{ColId, Column, Mask};
+use column::{ColId, NamedColumn, Mask};
 pub use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
 pub use frunk::indices::{Here, There};
 
-pub type HCons<C, Tail> = HConsFrunk<Column<C>, Tail>;
+pub type HCons<C, Tail> = HConsFrunk<NamedColumn<C>, Tail>;
 
 // ### HListExt ###
 
@@ -47,21 +47,21 @@ where
 {
     fn copy_locs(&self, locs: &[usize]) -> Self {
         HCons {
-            head: Column::new(self.head.copy_locs(locs)),
+            head: NamedColumn::new(self.head.copy_locs(locs)),
             tail: self.tail.copy_locs(locs),
         }
     }
 
     fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self {
         HCons {
-            head: Column::new(self.head.copy_locs_opt(locs)),
+            head: NamedColumn::new(self.head.copy_locs_opt(locs)),
             tail: self.tail.copy_locs_opt(locs),
         }
     }
 
     fn filter_mask(&self, mask: &Mask) -> Self {
         HCons {
-            head: Column::new(self.head.filter_mask(mask)),
+            head: NamedColumn::new(self.head.filter_mask(mask)),
             tail: self.tail.filter_mask(mask),
         }
     }
@@ -112,7 +112,7 @@ where
 // ### Replacer ###
 
 pub trait Replacer<Target: ColId, Index> {
-    fn replace(&mut self, newcol: Column<Target>);
+    fn replace(&mut self, newcol: NamedColumn<Target>);
 }
 
 impl<Col, Tail> Replacer<Col, Here> for HCons<Col, Tail>
@@ -120,7 +120,7 @@ where
     Col: ColId,
     Tail: HList,
 {
-    fn replace(&mut self, newcol: Column<Col>) {
+    fn replace(&mut self, newcol: NamedColumn<Col>) {
         self.head = newcol;
     }
 }
@@ -131,7 +131,7 @@ where
     FromTail: ColId,
     Tail: HList + Replacer<FromTail, TailIndex>,
 {
-    fn replace(&mut self, newcol: Column<FromTail>) {
+    fn replace(&mut self, newcol: NamedColumn<FromTail>) {
         self.tail.replace(newcol)
     }
 }
@@ -161,7 +161,7 @@ where
         F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
         HCons {
-            head: Column::new(self.head.map(func)),
+            head: NamedColumn::new(self.head.map(func)),
             tail: self.tail,
         }
     }
@@ -171,7 +171,7 @@ where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
     {
         HCons {
-            head: Column::new(self.head.map_notnull(func)),
+            head: NamedColumn::new(self.head.map_notnull(func)),
             tail: self.tail,
         }
     }
