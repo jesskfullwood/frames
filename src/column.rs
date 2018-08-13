@@ -211,17 +211,6 @@ impl<T: Sized> Column<T> {
         self.0.index.borrow().is_some()
     }
 
-    // This is unsafe at the moment because it will invalidate
-    // the index, if it exsts
-    // pub(crate) unsafe fn push(&mut self, val: Option<T>) {
-    //     push_maybe_null(
-    //         val,
-    //         &mut self.0.data.0,
-    //         &mut self.0.null_vec,
-    //         &mut self.0.null_count,
-    //     )
-    // }
-
     /// Returns wrapped value, or None if null,
     /// wrapped in bounds-check
     pub fn get(&self, ix: usize) -> Option<Option<&T>> {
