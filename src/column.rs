@@ -50,7 +50,7 @@ pub trait ColId {
 }
 
 #[derive(Clone)]
-pub struct Column<T>(NamedColumnInner<T>);
+pub struct Column<T>(ColumnInner<T>);
 
 impl<T: ColId> Deref for NamedColumn<T> {
     type Target = Column<T::Output>;
@@ -66,14 +66,14 @@ impl<T: ColId> DerefMut for NamedColumn<T> {
 }
 
 #[derive(Clone)]
-struct NamedColumnInner<T> {
+struct ColumnInner<T> {
     data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
     index: RefCell<Option<IndexMap<T>>>,
 }
 
-impl<T> Drop for NamedColumnInner<T> {
+impl<T> Drop for ColumnInner<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
@@ -171,7 +171,7 @@ impl<T: Sized> Column<T> {
         for v in data {
             push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
         }
-        Column(NamedColumnInner {
+        Column(ColumnInner {
             null_count,
             null_vec,
             data: Array::new(arr),
@@ -183,7 +183,7 @@ impl<T: Sized> Column<T> {
         // ManuallyDrop is a zero-cost wrapper so this should be safe
         let data = Array(data.into_iter().collect());
         let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Column(NamedColumnInner {
+        Column(ColumnInner {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
             data,
