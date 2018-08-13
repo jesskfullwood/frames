@@ -29,6 +29,7 @@ pub type Result<T> = StdResult<T, failure::Error>;
 // TODO benchmark smallvec vs Vec
 type IndexVec = smallvec::SmallVec<[usize; 2]>;
 type IndexMap<T> = HashMap<T, IndexVec>;
+type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
 
 // TODO Pretty-printing of Frame
 

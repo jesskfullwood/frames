@@ -3,14 +3,14 @@ use num::traits::AsPrimitive;
 use num::{self, Num};
 
 use std;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use {id, Array, IndexMap, IndexVec, StdResult};
+use {id, Array, IndexKeys, IndexMap, IndexVec, StdResult};
 
 // TODO Bring back Arc!
 #[derive(Clone, Debug, PartialEq)]
@@ -198,7 +198,7 @@ impl<T: Sized> AnonColumn<T> {
         self.len() - self.0.null_count
     }
 
-    pub fn has_index(&self) -> bool {
+    pub fn is_indexed(&self) -> bool {
         self.0.index.borrow().is_some()
     }
 
@@ -339,7 +339,7 @@ impl<T: Clone> AnonColumn<T> {
 impl<T: Hash + Clone + Eq> AnonColumn<T> {
     // TODO this seems to be very slow??
     pub fn build_index(&self) {
-        if self.has_index() {
+        if self.is_indexed() {
             return;
         }
         let mut index = IndexMap::with_capacity(self.len());
@@ -353,6 +353,13 @@ impl<T: Hash + Clone + Eq> AnonColumn<T> {
         }
         index.shrink_to_fit(); // we aren't touching this again
         *self.0.index.borrow_mut() = Some(index);
+    }
+
+    pub fn uniques(&self) -> UniqueIter<T> {
+        self.build_index();
+        UniqueIter {
+            r: Ref::map(self.0.index.borrow(),|o| o.as_ref().unwrap())
+        }
     }
 
     pub(crate) fn inner_join_locs(&self, other: &AnonColumn<T>) -> (Vec<usize>, Vec<usize>) {
@@ -616,6 +623,26 @@ pub struct Describe {
     pub stdev: f64,
 }
 
+// TODO should probably adapt this to just ho
+pub struct UniqueIter<'a, T: 'a>
+where
+    T: Eq + Hash,
+{
+    r: Ref<'a, IndexMap<T>>,
+}
+
+impl<'a, 'b: 'a, T: 'a> IntoIterator for &'b UniqueIter<'a, T>
+where
+    T: Eq + Hash,
+{
+    type IntoIter = IndexKeys<'a, T>;
+    type Item = &'a T;
+
+    fn into_iter(self) -> IndexKeys<'a, T> {
+        self.r.keys()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -671,5 +698,15 @@ mod tests {
             AnonColumn::from(vec![Some(1), Some(2), Some(3), None, Some(4)]),
             c,
         );
+    }
+
+    #[test]
+    fn test_unique_iter() {
+        let c = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
+        // let reff = c.uniques();
+        // let ref2 = c.0.index.borrow_mut();
+        let mut keys: Vec<_> = c.uniques().into_iter().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, vec![1, 2, 3, 4, 5]);
     }
 }
