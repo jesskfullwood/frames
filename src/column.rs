@@ -3,16 +3,15 @@ use num::traits::AsPrimitive;
 use num::{self, Num};
 
 use std;
-use std::cell::{Ref, RefCell};
+// use std::cell::{Ref, RefCell};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use {id, Array, IndexKeys, IndexMap, IndexVec, StdResult};
 
-// TODO Bring back Arc!
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamedColumn<T: ColId>(Column<T::Output>);
 
@@ -50,7 +49,7 @@ pub trait ColId {
 }
 
 #[derive(Clone)]
-pub struct Column<T>(NamedColumnInner<T>);
+pub struct Column<T>(Arc<RwLock<ColumnInner<T>>>);
 
 impl<T: ColId> Deref for NamedColumn<T> {
     type Target = Column<T::Output>;
@@ -66,14 +65,14 @@ impl<T: ColId> DerefMut for NamedColumn<T> {
 }
 
 #[derive(Clone)]
-struct NamedColumnInner<T> {
+struct ColumnInner<T> {
     data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
-    index: RefCell<Option<IndexMap<T>>>,
+    index: Option<IndexMap<T>>,
 }
 
-impl<T> Drop for NamedColumnInner<T> {
+impl<T> Drop for ColumnInner<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
@@ -146,6 +145,7 @@ where
 
 impl<T: Debug> Debug for Column<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
+        let inner = self.read();
         // This is very inefficient but we don't care because it's only for debugging
         let vals: Vec<String> = self
             .iter()
@@ -156,8 +156,8 @@ impl<T: Debug> Debug for Column<T> {
         write!(
             f,
             "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
-            self.0.index.borrow().is_some(),
-            self.0.null_count,
+            inner.index.is_some(),
+            inner.null_count,
             vals
         )
     }
@@ -171,28 +171,45 @@ impl<T: Sized> Column<T> {
         for v in data {
             push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
         }
-        Column(NamedColumnInner {
+        Column(Arc::new(RwLock::new(ColumnInner {
             null_count,
             null_vec,
             data: Array::new(arr),
-            index: RefCell::new(None),
-        })
+            index: None
+        })))
     }
 
     pub fn new_notnull(data: impl IntoIterator<Item = T>) -> Column<T> {
         // ManuallyDrop is a zero-cost wrapper so this should be safe
         let data = Array(data.into_iter().collect());
         let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Column(NamedColumnInner {
+        Column(Arc::new(RwLock::new(ColumnInner {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
             data,
-            index: RefCell::new(None),
-        })
+            index: None
+        })))
     }
 
+    #[inline]
+    fn read(&self) -> RwLockReadGuard<ColumnInner<T>> {
+        self.0.read().unwrap()
+    }
+
+    // fn data(&self) -> &Array<ManuallyDrop<T>> {
+    //     &self.0.read().unwrap().data
+    // }
+
+    // fn null_vec(&self) -> &BitVec {
+    //     &self.0.read().unwrap().null_vec
+    // }
+
+    // fn index(&self) -> &Option<IndexMap<T>> {
+    //     & self.0.read().unwrap().index
+    // }
+
     pub fn len(&self) -> usize {
-        self.0.data.len()
+        self.read().data.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -200,52 +217,60 @@ impl<T: Sized> Column<T> {
     }
 
     pub fn count_null(&self) -> usize {
-        self.0.null_count
+        self.0.read().unwrap().null_count
     }
 
     pub fn count_notnull(&self) -> usize {
-        self.len() - self.0.null_count
+        let inner = self.0.read().unwrap();
+        inner.data.len() - inner.null_count
     }
 
     pub fn is_indexed(&self) -> bool {
-        self.0.index.borrow().is_some()
+        self.read().index.is_some()
     }
 
     // This is unsafe at the moment because it will invalidate
     // the index, if it exsts
     pub(crate) unsafe fn push(&mut self, val: Option<T>) {
+        let mut inner = &mut *self.0.write().unwrap();
         push_maybe_null(
             val,
-            &mut self.0.data.0,
-            &mut self.0.null_vec,
-            &mut self.0.null_count,
+            &mut inner.data.0,
+            &mut inner.null_vec,
+            &mut inner.null_count,
         )
     }
 
-    /// Returns wrapped value, or None if null,
-    /// wrapped in bounds-check
-    pub fn get(&self, ix: usize) -> Option<Option<&T>> {
-        match self.0.null_vec.get(ix) {
-            None => None, // out of bounds
-            Some(true) => Some(Some(&self.0.data[ix])),
-            Some(false) => Some(None),
-        }
-    }
+    // /// Returns wrapped value, or None if null,
+    // /// wrapped in bounds-check
+    // pub fn get(&self, ix: usize) -> Option<Option<&T>> {
+    //     // TODO when used in loop this will be very slow
+    //     let inner = self.read();
+    //     match inner.null_vec.get(ix) {
+    //         None => None, // out of bounds
+    //         Some(true) => {
+    //             let data = inner.data;
+    //             Some(Some(&*data[ix]))
+    //         }
+    //         Some(false) => Some(None),
+    //     }
+    // }
 
     pub fn iter(&self) -> impl Iterator<Item = Option<&T>> + '_ {
-        self.0
-            .null_vec
+        let inner = self.read();
+        inner.null_vec
             .iter()
-            .zip(self.0.data.iter())
+            .zip(inner.data.iter())
             .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
     pub fn iter_notnull(&self) -> impl Iterator<Item = &T> + '_ {
-        self.0
-            .null_vec
-            .iter()
-            .zip(self.0.data.iter())
-            .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
+        // let inner = self.read();
+        // inner.null_vec
+        //     .iter()
+        //     .zip(inner.data.iter())
+        //     .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
+        vec![].iter()
     }
 
     // TODO this is underused
@@ -271,9 +296,13 @@ impl<T: Sized> Column<T> {
         &self,
         iter: impl Iterator<Item = usize>,
     ) -> impl Iterator<Item = Option<&T>> {
-        let data = &self.0.data;
-        let nulls = &self.0.null_vec;
-        iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
+        // let inner = self.read();
+        // let data = inner.data;
+        // let nulls = inner.null_vec;
+        // iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
+        unimplemented!();
+        vec![].into_iter()
+
     }
 }
 
@@ -361,141 +390,145 @@ impl<T: Hash + Clone + Eq> Column<T> {
             entry.push(ix)
         }
         index.shrink_to_fit(); // we aren't touching this again
-        *self.0.index.borrow_mut() = Some(index);
+        let ix = &mut self.0.write().unwrap().index;
+        *ix = Some(index);
     }
 
-    pub fn uniques(&self) -> UniqueIter<T> {
-        self.build_index();
-        UniqueIter {
-            r: Ref::map(self.0.index.borrow(),|o| o.as_ref().unwrap())
-        }
-    }
+    // pub fn uniques(&self) -> UniqueIter<T> {
+    //     self.build_index();
+    //     UniqueIter {
+    //         r: Ref::map(self.0.index.borrow(),|o| o.as_ref().unwrap())
+    //     }
+    // }
 
     pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
-        other.build_index();
-        let rborrow = other.0.index.borrow();
-        let rindex = rborrow.as_ref().unwrap();
-        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
-        let mut rightout = Vec::with_capacity(self.len());
-        self.iter()
-            .enumerate()
-            .filter_map(|(ix, lval)| lval.map(|d| (ix, d)))
-            .for_each(|(lix, lval)| {
-                if let Some(rixs) = rindex.get(lval) {
-                    // We have found a join
-                    rixs.iter().for_each(|&rix| {
-                        leftout.push(lix);
-                        rightout.push(rix);
-                    })
-                }
-            });
-        assert_eq!(leftout.len(), rightout.len());
-        (leftout, rightout)
+        unimplemented!()
+        // other.build_index();
+        // let rborrow = other.0.index.borrow();
+        // let rindex = rborrow.as_ref().unwrap();
+        // let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        // let mut rightout = Vec::with_capacity(self.len());
+        // self.iter()
+        //     .enumerate()
+        //     .filter_map(|(ix, lval)| lval.map(|d| (ix, d)))
+        //     .for_each(|(lix, lval)| {
+        //         if let Some(rixs) = rindex.get(lval) {
+        //             // We have found a join
+        //             rixs.iter().for_each(|&rix| {
+        //                 leftout.push(lix);
+        //                 rightout.push(rix);
+        //             })
+        //         }
+        //     });
+        // assert_eq!(leftout.len(), rightout.len());
+        // (leftout, rightout)
     }
 
     pub(crate) fn left_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<Option<usize>>) {
-        other.build_index();
-        let rborrow = other.0.index.borrow();
-        let rindex = rborrow.as_ref().unwrap();
-        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
-        let mut rightout = Vec::with_capacity(self.len());
+        unimplemented!()
+        // other.build_index();
+        // let rborrow = other.0.index.borrow();
+        // let rindex = rborrow.as_ref().unwrap();
+        // let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        // let mut rightout = Vec::with_capacity(self.len());
 
-        for (lix, lvalo) in self.iter().enumerate() {
-            if let Some(lval) = lvalo {
-                if let Some(rixs) = rindex.get(lval) {
-                    // we have a join
-                    rixs.iter().for_each(|&rix| {
-                        leftout.push(lix);
-                        rightout.push(Some(rix));
-                    })
-                } else {
-                    // we have no join
-                    leftout.push(lix);
-                    rightout.push(None);
-                }
-            } else {
-                // we have a null
-                leftout.push(lix);
-                rightout.push(None);
-            }
-        }
-        assert_eq!(leftout.len(), rightout.len());
-        (leftout, rightout)
+        // for (lix, lvalo) in self.iter().enumerate() {
+        //     if let Some(lval) = lvalo {
+        //         if let Some(rixs) = rindex.get(lval) {
+        //             // we have a join
+        //             rixs.iter().for_each(|&rix| {
+        //                 leftout.push(lix);
+        //                 rightout.push(Some(rix));
+        //             })
+        //         } else {
+        //             // we have no join
+        //             leftout.push(lix);
+        //             rightout.push(None);
+        //         }
+        //     } else {
+        //         // we have a null
+        //         leftout.push(lix);
+        //         rightout.push(None);
+        //     }
+        // }
+        // assert_eq!(leftout.len(), rightout.len());
+        // (leftout, rightout)
     }
 
     pub(crate) fn outer_join_locs(
         &self,
         other: &Column<T>,
     ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
-        self.build_index();
-        other.build_index();
-        let lborrow = self.0.index.borrow();
-        let lindex = lborrow.as_ref().unwrap();
-        let rborrow = other.0.index.borrow();
-        let rindex = rborrow.as_ref().unwrap();
-        let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
-        let mut rightout = Vec::with_capacity(self.len());
+        unimplemented!()
+        // self.build_index();
+        // other.build_index();
+        // let lborrow = self.0.index.borrow();
+        // let lindex = lborrow.as_ref().unwrap();
+        // let rborrow = other.0.index.borrow();
+        // let rindex = rborrow.as_ref().unwrap();
+        // let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
+        // let mut rightout = Vec::with_capacity(self.len());
 
-        for (lix, lvalo) in self.iter().enumerate() {
-            match lvalo {
-                None => {
-                    // Left value is null, so no joins
-                    leftout.push(Some(lix));
-                    rightout.push(None);
-                }
-                Some(lval) => {
-                    let lixs = lindex.get(lval).unwrap();
-                    match rindex.get(lval) {
-                        None => {
-                            // No join
-                            leftout.push(Some(lix));
-                            rightout.push(None);
-                        }
-                        Some(rixs) => {
-                            // we have a join. Push each permutation of indexes
-                            lixs.iter().for_each(|&lix| {
-                                rixs.iter().for_each(|&rix| {
-                                    leftout.push(Some(lix));
-                                    rightout.push(Some(rix));
-                                })
-                            })
-                        }
-                    }
-                }
-            }
-        }
-        for (rix, rvalo) in other.iter().enumerate() {
-            match rvalo {
-                None => {
-                    // Right value is null, add to output
-                    leftout.push(None);
-                    rightout.push(Some(rix));
-                }
-                Some(rval) => {
-                    match lindex.get(rval) {
-                        None => {
-                            // No join, add in right index
-                            leftout.push(None);
-                            rightout.push(Some(rix));
-                        }
-                        Some(_) => {
-                            // we have a join, but have already dealt with it above
-                            // so there is nothing to be done the second time round
-                        }
-                    }
-                }
-            }
-        }
-        // Finally add in all the nulls from 'other', since they have been missed
-        assert_eq!(leftout.len(), rightout.len());
-        (leftout, rightout)
+        // for (lix, lvalo) in self.iter().enumerate() {
+        //     match lvalo {
+        //         None => {
+        //             // Left value is null, so no joins
+        //             leftout.push(Some(lix));
+        //             rightout.push(None);
+        //         }
+        //         Some(lval) => {
+        //             let lixs = lindex.get(lval).unwrap();
+        //             match rindex.get(lval) {
+        //                 None => {
+        //                     // No join
+        //                     leftout.push(Some(lix));
+        //                     rightout.push(None);
+        //                 }
+        //                 Some(rixs) => {
+        //                     // we have a join. Push each permutation of indexes
+        //                     lixs.iter().for_each(|&lix| {
+        //                         rixs.iter().for_each(|&rix| {
+        //                             leftout.push(Some(lix));
+        //                             rightout.push(Some(rix));
+        //                         })
+        //                     })
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // for (rix, rvalo) in other.iter().enumerate() {
+        //     match rvalo {
+        //         None => {
+        //             // Right value is null, add to output
+        //             leftout.push(None);
+        //             rightout.push(Some(rix));
+        //         }
+        //         Some(rval) => {
+        //             match lindex.get(rval) {
+        //                 None => {
+        //                     // No join, add in right index
+        //                     leftout.push(None);
+        //                     rightout.push(Some(rix));
+        //                 }
+        //                 Some(_) => {
+        //                     // we have a join, but have already dealt with it above
+        //                     // so there is nothing to be done the second time round
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // // Finally add in all the nulls from 'other', since they have been missed
+        // assert_eq!(leftout.len(), rightout.len());
+        // (leftout, rightout)
     }
 
     // TODO this seems very inefficient, what is it for?
     pub(crate) fn index_values(&self) -> Vec<IndexVec> {
         self.build_index();
-        let borrow = self.0.index.borrow();
-        let colix = borrow.as_ref().unwrap();
+        let inner = self.read();
+        let colix = inner.index.as_ref().unwrap();
         colix.values().cloned().collect()
     }
 }
@@ -632,25 +665,25 @@ pub struct Describe {
     pub stdev: f64,
 }
 
-// TODO should probably adapt this to just ho
-pub struct UniqueIter<'a, T: 'a>
-where
-    T: Eq + Hash,
-{
-    r: Ref<'a, IndexMap<T>>,
-}
+// // TODO should probably adapt this to just ho
+// pub struct UniqueIter<'a, T: 'a>
+// where
+//     T: Eq + Hash,
+// {
+//     r: Ref<'a, IndexMap<T>>,
+// }
 
-impl<'a, 'b: 'a, T: 'a> IntoIterator for &'b UniqueIter<'a, T>
-where
-    T: Eq + Hash,
-{
-    type IntoIter = IndexKeys<'a, T>;
-    type Item = &'a T;
+// impl<'a, 'b: 'a, T: 'a> IntoIterator for &'b UniqueIter<'a, T>
+// where
+//     T: Eq + Hash,
+// {
+//     type IntoIter = IndexKeys<'a, T>;
+//     type Item = &'a T;
 
-    fn into_iter(self) -> IndexKeys<'a, T> {
-        self.r.keys()
-    }
-}
+//     fn into_iter(self) -> IndexKeys<'a, T> {
+//         self.r.keys()
+//     }
+// }
 
 // TODO this only works for single idents, ie "my string column" is not allowed
 #[macro_export]
