@@ -1,7 +1,9 @@
-use column::{Column, Mask};
+use column::{AnonColumn, ColId, Column, Mask};
 pub use frame_alias::*;
 use hlist::*;
 use {id, IndexVec};
+
+use frunk::hlist::{Plucker, Selector};
 
 use std::hash::Hash;
 
@@ -11,11 +13,6 @@ use Result;
 // for details. (In fact, that implementation is much more complete)
 
 // TODO tag everything with #[must_use]
-
-pub trait ColId {
-    const NAME: &'static str;
-    type Output;
-}
 
 // ### Frame ###
 
@@ -46,7 +43,7 @@ impl<H: HList> Frame<H> {
     }
 
     pub fn num_cols(&self) -> usize {
-        H::SIZE
+        self.hlist.len()
     }
 
     pub fn names(&self) -> Vec<&'static str>
@@ -57,10 +54,10 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline]
-    pub fn get<Col, Index>(&self) -> &Column<Col::Output>
+    pub fn get<Col, Index>(&self) -> &Column<Col>
     where
         Col: ColId,
-        H: Selector<Col, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         Selector::get(&self.hlist)
     }
@@ -70,15 +67,15 @@ impl<H: HList> Frame<H> {
     pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
     where
         Col: ColId,
-        Data: Into<Column<Col::Output>>,
+        Data: Into<Column<Col>>,
     {
         let coll = coll.into();
-        if !H::IS_ROOT && coll.len() != self.len {
+        if self.hlist.len() != 0 && coll.len() != self.len {
             bail!("Mismatched lengths ({} and {})", self.len(), coll.len())
         } else {
             Ok(Frame {
                 len: coll.len(),
-                hlist: self.hlist.addcol(coll),
+                hlist: self.hlist.prepend(coll),
             })
         }
     }
@@ -101,7 +98,7 @@ impl<H: HList> Frame<H> {
         self.len += 1;
     }
 
-    pub fn replace<Col: ColId, Index>(&mut self, newcol: Column<Col::Output>)
+    pub fn replace<Col: ColId, Index>(&mut self, newcol: Column<Col>)
     where
         H: Replacer<Col, Index>,
     {
@@ -144,14 +141,15 @@ impl<H: HList> Frame<H> {
     pub fn extract<Col, Index>(
         self,
     ) -> (
-        Column<Col::Output>,
-        Frame<<H as Extractor<Col, Index>>::Remainder>,
+        Column<Col>,
+        Frame<<H as Plucker<Column<Col>, Index>>::Remainder>,
     )
     where
         Col: ColId,
-        H: Extractor<Col, Index>,
+        H: Plucker<Column<Col>, Index>,
+        <H as Plucker<Column<Col>, Index>>::Remainder: HList,
     {
-        let (v, hlist) = Extractor::extract(self.hlist);
+        let (v, hlist) = self.hlist.pluck();
         (
             v,
             Frame {
@@ -169,9 +167,9 @@ impl<H: HList> Frame<H> {
     where
         H: Concat<C>,
     {
-        let len = if H::IS_ROOT {
+        let len = if self.hlist.len() == 0 {
             other.len()
-        } else if C::IS_ROOT {
+        } else if other.hlist.len() == 0 {
             self.len()
         } else if self.len() != other.len() {
             bail!("Mismatched lengths ({} and {})", other.len(), self.len())
@@ -192,14 +190,18 @@ where
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
-        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        Oth: HList
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
+            + Concat<H>
+            + HListClonable,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<LCol, LIx>,
+        H: Selector<Column<LCol>, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -213,14 +215,18 @@ where
     pub fn left_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
-        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        Oth: HList
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
+            + Concat<H>
+            + HListClonable,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<LCol, LIx>,
+        H: Selector<Column<LCol>, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -234,14 +240,18 @@ where
     pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
-    ) -> Frame<<<Oth as Extractor<RCol, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList + Selector<RCol, RIx> + Extractor<RCol, RIx> + Concat<H> + HListClonable,
-        <Oth as Extractor<RCol, RIx>>::Remainder: Concat<H>,
+        Oth: HList
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
+            + Concat<H>
+            + HListClonable,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Hash,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<LCol, LIx> + Replacer<LCol, LIx>,
+        H: Selector<Column<LCol>, LIx> + Replacer<LCol, LIx>,
     {
         let left = self.get::<LCol, _>();
         let right = other.get::<RCol, _>();
@@ -251,12 +261,12 @@ where
         let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
         let joined = {
             let ljoined = leftframe.get::<LCol, _>();
-            Column::new(
+            Column::from(AnonColumn::new(
                 ljoined
                     .iter()
                     .zip(rjoined.iter())
                     .map(|(left, right)| left.or(right).cloned()),
-            )
+            ))
         };
         leftframe.replace(joined);
         leftframe.concat(rightframe).unwrap()
@@ -280,7 +290,7 @@ where
     where
         Col: ColId,
         F: Fn(&Col::Output) -> bool,
-        H: Selector<Col, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         // TODO also add filter2, filter3...
         let mask = self.get::<Col, _>().mask(func);
@@ -302,7 +312,7 @@ where
     where
         Col: ColId,
         Col::Output: Eq + Clone + Hash,
-        H: Selector<Col, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         let (grouping_index, grouped_col) = {
             // lifetimes workaround
@@ -321,9 +331,9 @@ where
     }
 }
 
-impl<Head: ColId, Tail: HList> Frame<HCons<Head, Tail>> {
+impl<Col: ColId, Tail: HList> Frame<HCons<Col, Tail>> {
     #[inline(always)]
-    pub fn pop(self) -> (Column<Head::Output>, Frame<Tail>) {
+    pub fn pop(self) -> (Column<Col>, Frame<Tail>) {
         let tail = Frame {
             hlist: self.hlist.tail,
             len: self.len,
@@ -377,7 +387,7 @@ where
     where
         Col: ColId,
         NewCol: ColId,
-        H: Selector<Col, Index>,
+        H: Selector<Column<Col>, Index>,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
         let res: Vec<NewCol::Output> = {
@@ -393,7 +403,7 @@ where
                     func(&to_acc)
                 }).collect()
         };
-        let grouped_frame = self.grouped_frame.addcol(res).unwrap();
+        let grouped_frame = self.grouped_frame.addcol(Column::with(res)).unwrap();
         GroupBy {
             frame: self.frame,
             grouping_index: self.grouping_index,
@@ -419,16 +429,19 @@ where
     Head::Output: 'a,
     Tail: RowTuple<'a>,
 {
-    type ProductOptRef = Product<Option<&'a Head::Output>, Tail::ProductOptRef>;
+    type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
     fn get_product(&'a self, index: usize) -> Self::ProductOptRef {
-        Product(self.head.get(index).unwrap(), self.tail.get_product(index))
+        HConsFrunk {
+            head: self.head.get(index).unwrap(),
+            tail: self.tail.get_product(index),
+        }
     }
 }
 
 impl<'a> RowTuple<'a> for HNil {
-    type ProductOptRef = ();
+    type ProductOptRef = HNil;
     fn get_product(&'a self, _index: usize) -> Self::ProductOptRef {
-        ()
+        HNil
     }
 }
 
@@ -492,7 +505,7 @@ pub(crate) mod test_fixtures {
                 r#"this,'" is the words here"#
                     .split(' ')
                     .map(String::from)
-                    .collect::<Vec<_>>(),
+                    .map(Some),
             ).unwrap()
     }
 }
@@ -506,9 +519,10 @@ pub(crate) mod tests {
     #[test]
     fn test_basic_frame() -> Result<()> {
         let f: Data3 = Frame::new()
-            .addcol(vec![10i64])?
-            .addcol(vec![1.23f64])?
-            .addcol(vec![String::from("Hello")])?;
+            .addcol(col![10i64])?
+            .addcol(col![1.23f64])?
+            // TODO String doesn't work with col! macro
+            .addcol(vec![Some("Hello".into())])?;
         assert_eq!(f.num_cols(), 3);
         assert_eq!(f.len, 1);
         {
@@ -527,7 +541,7 @@ pub(crate) mod tests {
     #[test]
     fn test_double_insert() -> Result<()> {
         type First = There<Here>;
-        let f: Frame2<IntT, IntT> = Frame::new().addcol(vec![10])?.addcol(vec![1])?;
+        let f: Frame2<IntT, IntT> = Frame::new().addcol(col![10])?.addcol(col![1])?;
         let (v, _) = f.extract::<IntT, First>();
         assert_eq!(v, &[10]);
         Ok(())
@@ -536,11 +550,11 @@ pub(crate) mod tests {
     #[test]
     fn test_add_coldef() -> Result<()> {
         let f: Data3 = Frame::new()
-            .addcol(vec![10i64])?
-            .addcol(vec![1.23f64])?
-            .addcol(vec![String::from("Hello")])?;
+            .addcol(col![10i64])?
+            .addcol(col![1.23f64])?
+            .addcol(vec![Some(String::from("Hello"))])?;
         define_col!(Added, i64);
-        let f = f.addcol::<Added, _>(vec![123])?;
+        let f = f.addcol::<Added, _>(col![123])?;
         let v = f.get::<Added, _>();
         assert_eq!(v, &[123]);
         Ok(())
@@ -556,15 +570,15 @@ pub(crate) mod tests {
 
         {
             let f1: Frame2<IntT, FloatT> =
-                Frame::new().addcol(vec![10i64])?.addcol(vec![1.23f64])?;
-            let f2: Frame1<StringT> = Frame::new().addcol(vec![String::from("Hello")])?;
+                Frame::new().addcol(col![10i64])?.addcol(col![1.23f64])?;
+            let f2: Frame1<StringT> = Frame::new().addcol(vec![Some(String::from("Hello"))])?;
             let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
         }
 
         {
             let f1 = Frame::new();
-            let f2 = Frame::new().addcol::<IntT, _>(vec![1, 2, 3])?;
-            let f3 = Frame::new().addcol::<FloatT, _>(vec![1., 2.])?;
+            let f2 = Frame::new().addcol::<IntT, _>(col![1, 2, 3])?;
+            let f3 = Frame::new().addcol::<FloatT, _>(col![1., 2.])?;
             let f4: Frame1<_> = f1.concat(f2)?;
             assert!(f4.concat(f3).is_err()) // mismatched types
         }
@@ -599,9 +613,9 @@ pub(crate) mod tests {
     fn test_groupby() -> Result<()> {
         // TODO special method for first column, or some kind of convenience builder
         let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
-            .addcol(vec![1, 3, 2, 3, 4, 2])?
-            .addcol(vec![1., 2., 1., 1., 1., 1.])?
-            .addcol(vec![true, false, true, false, true, false])?;
+            .addcol(col![1, 3, 2, 3, 4, 2])?
+            .addcol(col![1., 2., 1., 1., 1., 1.])?
+            .addcol(col![true, false, true, false, true, false])?;
         define_col!(FloatSum, f64);
         define_col!(TrueCt, u32);
         // TODO can we rewrite to get rid of the dangling type parameters?
@@ -657,10 +671,10 @@ pub(crate) mod tests {
 
     #[test]
     fn test_outer_join_nones() -> Result<()> {
-        let f1: Frame1<IntT> = Frame::new().addcol(Column::new(vec![None]))?;
-        let f2: Frame1<IntT> = Frame::new().addcol(Column::new(vec![None, None]))?;
+        let f1: Frame1<IntT> = Frame::new().addcol(col![None])?;
+        let f2: Frame1<IntT> = Frame::new().addcol(col![None, None])?;
         let f3 = f1.outer_join(&f2);
-        assert_eq!(f3.get(), &Column::new(vec![None, None, None]));
+        assert_eq!(f3.get(), &col![None, None, None]);
         Ok(())
     }
 
@@ -693,7 +707,7 @@ pub(crate) mod tests {
                 (Some(&1), None, Some(&false)),
                 (Some(&2), Some(&5.), None),
                 (None, Some(&4.), Some(&true))
-            ]
+            ],
         );
     }
 }

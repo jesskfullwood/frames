@@ -4,18 +4,17 @@
 extern crate failure;
 extern crate bit_vec;
 extern crate csv;
+extern crate frunk;
 extern crate num;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate ordered_float;
+extern crate serde;
 extern crate smallvec;
 
 use std::collections::HashMap;
 use std::ops::Index;
 
-pub use column::Column;
-pub use frame::{ColId, Frame};
+pub use column::{ColId, Column};
+pub use frame::Frame;
 pub use io::read_csv;
 
 #[macro_use]

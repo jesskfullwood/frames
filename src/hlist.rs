@@ -1,85 +1,31 @@
-use std::marker::PhantomData;
+use column::{ColId, Column, Mask};
+pub use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
+pub use frunk::indices::{Here, There};
 
-use column::{Column, Mask};
-use frame::ColId;
-
-// ### HList struct defs ###
-
-#[derive(PartialEq, Debug, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-pub struct HNil;
-
-#[derive(PartialEq, Debug, Clone)]
-pub struct HCons<H: ColId, T> {
-    pub head: Column<H::Output>,
-    pub tail: T,
-}
-
-pub struct Here {
-    _priv: (),
-}
-
-pub struct There<T> {
-    _marker: PhantomData<T>,
-}
-
-#[derive(Debug, Deserialize, Copy, Clone)]
-pub struct Product<T, U>(pub(crate) T, pub(crate) U);
-
-// ### HList ###
-
-pub trait HList: Sized {
-    type Product;
-    const SIZE: usize;
-    const IS_ROOT: bool;
-
-    #[inline]
-    fn size(&self) -> usize {
-        Self::SIZE
-    }
-
-    fn addcol<T: ColId>(self, head: impl Into<Column<T::Output>>) -> HCons<T, Self> {
-        HCons {
-            head: head.into(),
-            tail: self,
-        }
-    }
-}
-
-impl HList for HNil {
-    type Product = ();
-    const SIZE: usize = 0;
-    const IS_ROOT: bool = true;
-}
-
-impl<Head, Tail> HList for HCons<Head, Tail>
-where
-    Head: ColId,
-    Tail: HList,
-{
-    type Product = Product<Option<Head::Output>, Tail::Product>;
-    const SIZE: usize = 1 + <Tail as HList>::SIZE;
-    const IS_ROOT: bool = false;
-}
+pub type HCons<C, Tail> = HConsFrunk<Column<C>, Tail>;
 
 // ### HListExt ###
 
 pub trait HListExt: HList {
+    type Product;
     fn get_names(&self) -> Vec<&'static str>;
 }
 
-impl<Head, Tail> HListExt for HCons<Head, Tail>
+impl<Col, Tail> HListExt for HCons<Col, Tail>
 where
-    Head: ColId,
+    Col: ColId,
     Tail: HListExt,
 {
+    type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
     fn get_names(&self) -> Vec<&'static str> {
         let mut ret = self.tail.get_names();
-        ret.push(Head::NAME);
+        ret.push(Col::NAME);
         ret
     }
 }
 
 impl HListExt for HNil {
+    type Product = HNil;
     fn get_names(&self) -> Vec<&'static str> {
         Vec::new()
     }
@@ -93,29 +39,29 @@ pub trait HListClonable: HList {
     fn filter_mask(&self, mask: &Mask) -> Self;
 }
 
-impl<Head, Tail> HListClonable for HCons<Head, Tail>
+impl<Col, Tail> HListClonable for HCons<Col, Tail>
 where
-    Head: ColId,
-    Head::Output: Clone,
+    Col: ColId,
+    Col::Output: Clone,
     Tail: HListClonable,
 {
     fn copy_locs(&self, locs: &[usize]) -> Self {
         HCons {
-            head: self.head.copy_locs(locs),
+            head: Column::new(self.head.copy_locs(locs)),
             tail: self.tail.copy_locs(locs),
         }
     }
 
     fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self {
         HCons {
-            head: self.head.copy_locs_opt(locs),
+            head: Column::new(self.head.copy_locs_opt(locs)),
             tail: self.tail.copy_locs_opt(locs),
         }
     }
 
     fn filter_mask(&self, mask: &Mask) -> Self {
         HCons {
-            head: self.head.filter_mask(mask),
+            head: Column::new(self.head.filter_mask(mask)),
             tail: self.tail.filter_mask(mask),
         }
     }
@@ -163,90 +109,29 @@ where
     }
 }
 
-// ### Selector ###
-
-pub trait Selector<S: ColId, Index> {
-    fn get(&self) -> &Column<S::Output>;
-}
-
-impl<Col: ColId, Tail> Selector<Col, Here> for HCons<Col, Tail> {
-    fn get(&self) -> &Column<Col::Output> {
-        &self.head
-    }
-}
-
-impl<Head, Tail, FromTail, TailIndex> Selector<FromTail, There<TailIndex>> for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    Tail: Selector<FromTail, TailIndex>,
-{
-    fn get(&self) -> &Column<FromTail::Output> {
-        self.tail.get()
-    }
-}
-
-// ### Extractor ###
-
-pub trait Extractor<Target: ColId, Index> {
-    type Remainder: HList;
-    fn extract(self) -> (Column<Target::Output>, Self::Remainder);
-}
-
-impl<Head: ColId, Tail: HList> Extractor<Head, Here> for HCons<Head, Tail> {
-    type Remainder = Tail;
-
-    fn extract(self) -> (Column<Head::Output>, Self::Remainder) {
-        (self.head, self.tail)
-    }
-}
-
-impl<Head, Tail, FromTail, TailIndex> Extractor<FromTail, There<TailIndex>> for HCons<Head, Tail>
-where
-    Head: ColId,
-    FromTail: ColId,
-    Tail: Extractor<FromTail, TailIndex>,
-{
-    type Remainder = HCons<Head, <Tail as Extractor<FromTail, TailIndex>>::Remainder>;
-
-    fn extract(self) -> (Column<FromTail::Output>, Self::Remainder) {
-        let (target, tail_remainder): (
-            Column<FromTail::Output>,
-            <Tail as Extractor<FromTail, TailIndex>>::Remainder,
-        ) = <Tail as Extractor<FromTail, TailIndex>>::extract(self.tail);
-        (
-            target,
-            HCons {
-                head: self.head,
-                tail: tail_remainder,
-            },
-        )
-    }
-}
-
 // ### Replacer ###
 
 pub trait Replacer<Target: ColId, Index> {
-    fn replace(&mut self, newcol: Column<Target::Output>);
+    fn replace(&mut self, newcol: Column<Target>);
 }
 
-impl<Head, Tail> Replacer<Head, Here> for HCons<Head, Tail>
+impl<Col, Tail> Replacer<Col, Here> for HCons<Col, Tail>
 where
-    Head: ColId,
+    Col: ColId,
     Tail: HList,
 {
-    fn replace(&mut self, newcol: Column<Head::Output>) {
+    fn replace(&mut self, newcol: Column<Col>) {
         self.head = newcol;
     }
 }
 
-impl<Head, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for HCons<Head, Tail>
+impl<Col, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for HCons<Col, Tail>
 where
-    Head: ColId,
+    Col: ColId,
     FromTail: ColId,
     Tail: HList + Replacer<FromTail, TailIndex>,
 {
-    fn replace(&mut self, newcol: Column<FromTail::Output>) {
+    fn replace(&mut self, newcol: Column<FromTail>) {
         self.tail.replace(newcol)
     }
 }
@@ -276,7 +161,7 @@ where
         F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
         HCons {
-            head: self.head.map(func),
+            head: Column::new(self.head.map(func)),
             tail: self.tail,
         }
     }
@@ -286,21 +171,21 @@ where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
     {
         HCons {
-            head: self.head.map_notnull(func),
+            head: Column::new(self.head.map_notnull(func)),
             tail: self.tail,
         }
     }
 }
 
-impl<Head, Tail, NewCol, FromTail, TailIndex> Mapper<FromTail, NewCol, There<TailIndex>>
-    for HCons<Head, Tail>
+impl<Col, Tail, NewCol, FromTail, TailIndex> Mapper<FromTail, NewCol, There<TailIndex>>
+    for HCons<Col, Tail>
 where
-    Head: ColId,
+    Col: ColId,
     FromTail: ColId,
     NewCol: ColId,
     Tail: HList + Mapper<FromTail, NewCol, TailIndex>,
 {
-    type Mapped = HCons<Head, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
+    type Mapped = HCons<Col, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
 
     fn map_replace<F>(self, func: F) -> Self::Mapped
     where
@@ -325,21 +210,24 @@ where
 
 // ### Insertable
 
-pub trait Insertable: HList {
+pub trait Insertable: HListExt {
     fn empty() -> Self;
     unsafe fn insert(&mut self, product: Self::Product);
 }
 
-impl<Head, Tail> Insertable for HCons<Head, Tail>
+impl<Col, Tail> Insertable for HCons<Col, Tail>
 where
-    Head: ColId,
-    Tail: HList + Insertable,
+    Col: ColId,
+    Tail: Insertable,
 {
     fn empty() -> Self {
-        <Tail as Insertable>::empty().addcol(Vec::new())
+        <Tail as Insertable>::empty().prepend(Vec::new().into())
     }
     unsafe fn insert(&mut self, product: Self::Product) {
-        let Product(val, rest) = product;
+        let HConsFrunk {
+            head: val,
+            tail: rest,
+        } = product;
         self.head.push(val);
         self.tail.insert(rest);
     }
@@ -349,7 +237,7 @@ impl Insertable for HNil {
     fn empty() -> Self {
         HNil
     }
-    unsafe fn insert(&mut self, _product: ()) {}
+    unsafe fn insert(&mut self, _product: HNil) {}
 }
 
 // ### Transformer ###

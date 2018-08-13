@@ -1,10 +1,10 @@
 use frame::Frame;
-use hlist::{HCons, HNil, Product, Transformer};
+use hlist::{HCons, HConsFrunk, HNil, Transformer};
 
 pub type Frame0 = Frame<HNil>;
 
 macro_rules! frame_alias {
-    ($($frames:ident),+ -> $typFirst:ident, $($typsNext:ident),*) => {
+    ($($frames:ident,)+ -> $typFirst:ident, $($typsNext:ident,)*) => {
         // start things off
         frame_alias!($($frames)* -> [ $typFirst ] $($typsNext)*);
     };
@@ -21,16 +21,16 @@ macro_rules! frame_alias {
 
 macro_rules! transformer_impl {
     ($($typs:ident)+) => {
-        impl<$($typs,)+> Transformer for macro_revargs!(product $($typs)+) {
+        impl<$($typs,)+> Transformer for macro_revargs!(cons_frunk $($typs)+) {
             type Flattened = ($($typs,)+);
             #[allow(non_snake_case)]
             fn nest(flat: Self::Flattened) -> Self {
                 let ($($typs,)+) = flat;
-                macro_revargs!(product_paren $($typs)+)
+                macro_revargs!(hlist_structure $($typs)+)
             }
             #[allow(non_snake_case)]
             fn flatten(self) -> Self::Flattened {
-                let macro_revargs!(product_paren $($typs)+) = self;
+                let macro_revargs!(hlist_structure $($typs)+) = self;
                 ($($typs,)+)
             }
         }
@@ -64,21 +64,21 @@ macro_rules! cons {
     }
 }
 
-macro_rules! product {
+macro_rules! cons_frunk {
     ($typ: ident) => {
-        Product<$typ, ()>
+        HConsFrunk<$typ, HNil>
     };
     ($typ_front:ident $($typs:ident)+) => {
-        Product< $typ_front , product!($($typs)+)>
+        HConsFrunk<$typ_front, cons_frunk!($($typs)+)>
     }
 }
 
-macro_rules! product_paren {
+macro_rules! hlist_structure {
     ($typ: ident) => {
-        Product($typ, ())
+        HConsFrunk { head: $typ, tail: HNil }
     };
     ($typ_front:ident $($typs:ident)+) => {
-        Product($typ_front, product_paren!($($typs)+))
+        HConsFrunk { head: $typ_front, tail: hlist_structure!($($typs)+) }
     }
 }
 
@@ -114,7 +114,7 @@ frame_alias!(
     Frame29,
     Frame30,
     Frame31,
-    Frame32
+    Frame32,
     ->
     T1,
     T2,
@@ -147,5 +147,5 @@ frame_alias!(
     T29,
     T30,
     T31,
-    T32
+    T32,
 );

@@ -8,9 +8,10 @@ use csv;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use frame::{ColId, Frame, RowTuple};
+use column::{AnonColumn, ColId};
+use frame::{Frame, RowTuple};
 use hlist::{HCons, HList, HListExt, HNil, Insertable, Transformer};
-use {Column, Result};
+use Result;
 
 pub fn read_csv<H>(path: impl AsRef<Path>) -> Result<Frame<H>>
 where
@@ -58,7 +59,10 @@ pub trait WriteBuffer: Sized {
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>);
 }
 
-impl<T: Display> WriteBuffer for Column<T> {
+impl<T> WriteBuffer for AnonColumn<T>
+where
+    T: Display,
+{
     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>) {
         // TODO this could easily? be multithreaded
         let mut buffer = Vec::with_capacity(self.len() * Self::CHARS_PER_ELEM_HINT);
@@ -85,10 +89,10 @@ pub trait WriteToBuffer {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)>;
 }
 
-impl<Head, Tail> WriteToBuffer for HCons<Head, Tail>
+impl<Col, Tail> WriteToBuffer for HCons<Col, Tail>
 where
-    Head: ColId,
-    Column<Head::Output>: WriteBuffer,
+    Col: ColId,
+    AnonColumn<Col::Output>: WriteBuffer,
     Tail: HList + WriteToBuffer,
 {
     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)> {
