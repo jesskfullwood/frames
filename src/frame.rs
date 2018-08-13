@@ -33,6 +33,16 @@ impl Frame<HNil> {
     }
 }
 
+impl<T: ColId> Frame<HCons<T, HNil>> {
+    pub fn with<I: Into<Column<T>>>(col: I) -> Self {
+        let col = col.into();
+        Frame {
+            len: col.len(),
+            hlist: HCons { head: col, tail:HNil },
+        }
+    }
+}
+
 impl Default for Frame<HNil> {
     fn default() -> Self {
         Self::new()
@@ -542,9 +552,7 @@ pub(crate) mod test_fixtures {
     pub(crate) type Data3 = Frame3<IntT, FloatT, StringT>;
 
     pub(crate) fn quickframe() -> Data3 {
-        Frame::new()
-            .addcol(col![1, 2, None, 3, 4])
-            .unwrap()
+        Frame::with(col![1, 2, None, 3, 4])
             .addcol(col![5., None, 3., 2., 1.])
             .unwrap()
             .addcol(
@@ -564,8 +572,7 @@ pub(crate) mod tests {
     // TODO convenient column literal macro
     #[test]
     fn test_basic_frame() -> Result<()> {
-        let f: Data3 = Frame::new()
-            .addcol(col![10i64])?
+        let f: Data3 = Frame::with(col![10i64])
             .addcol(col![1.23f64])?
             // TODO String doesn't work with col! macro
             .addcol(vec![Some("Hello".into())])?;
@@ -587,7 +594,7 @@ pub(crate) mod tests {
     #[test]
     fn test_double_insert() -> Result<()> {
         type First = There<Here>;
-        let f: Frame2<IntT, IntT> = Frame::new().addcol(col![10])?.addcol(col![1])?;
+        let f: Frame2<IntT, IntT> = Frame::with(col![10]).addcol(col![1])?;
         let (v, _) = f.extract::<IntT, First>();
         assert_eq!(v, &[10]);
         Ok(())

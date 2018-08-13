@@ -703,8 +703,6 @@ mod tests {
     #[test]
     fn test_unique_iter() {
         let c = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
-        // let reff = c.uniques();
-        // let ref2 = c.0.index.borrow_mut();
         let mut keys: Vec<_> = c.uniques().into_iter().cloned().collect();
         keys.sort();
         assert_eq!(keys, vec![1, 2, 3, 4, 5]);
