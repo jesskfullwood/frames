@@ -17,6 +17,9 @@ define_col!(Strings, String, strings);
 const SIZE: usize = 10_000_000;
 
 fn main() -> Result<()> {
+
+    // Create frame
+
     let t = time::Instant::now();
     let df1 = Frame::with::<Int, _>((0..SIZE).map(Some))
         .addcol::<Float, _>((0..SIZE).map(|v| v as f64 + 0.5).map(Some))?
@@ -44,40 +47,52 @@ fn main() -> Result<()> {
     let t = elapsed_secs(t);
     println!("Created equivalent vec with {} rows in {}s", vec.len(), t);
 
+    // Clone many
+
     let t = time::Instant::now();
     let clones = vec![df1.clone(); 100_000];
     let t = elapsed_secs(t);
     println!("Created {} clones in {}s", clones.len(), t);
 
+    // Describe column
+
+    let t = time::Instant::now();
+    let mean = df1.get::<Int, _>().describe().mean;
+    assert_eq!(mean, 4999999.5);
+    println!("Described Int column in {}s", elapsed_secs(t));
+    let mean = df1.get::<Float, _>().describe().mean;
+    assert_eq!(mean, 5000000.);
+    println!("Described Float column in {}s", elapsed_secs(t));
+
+    // Build index
+
+    let t = time::Instant::now();
+    df1.get::<Int, _>().build_index();
+    println!("Indexed Int column in {}s", elapsed_secs(t));
+
+    // Join to self
+
+    let df1j = df1.clone();
+    let t = time::Instant::now();
+    let _df3 = df1j.inner_join::<Int, Int, _, _, _>(&df1);
+    println!("Joined to self in {}s", elapsed_secs(t));
+
+    // Write to CSV
+
     let tmp_dir = TempDir::new("framesexample")?;
     let path = tmp_dir.path().join("test.csv");
-    println!("Writing CSV to {}", path.display());
-    let startw = time::Instant::now();
+    let t = time::Instant::now();
     df1.write_csv(&path)?;
-    let tw = elapsed_secs(startw);
-    println!("Wrote in {}s ({:.0} lines/sec)", tw, SIZE as f64 / tw);
+    let tw = elapsed_secs(t);
+    println!("Wrote CSV to {} in {}s ({:.0} lines/sec)", path.display(), tw, SIZE as f64 / tw);
+
+    // Read from CSV
 
     println!("Reading CSV from {}", path.display());
-    let startr = time::Instant::now();
-    let df2: Frame4<Int, Float, Bool, Strings> = read_csv(&path).unwrap();
-    let tr = elapsed_secs(startr);
-    println!("Read in {}s ({:.0} lines/sec)", tr, SIZE as f64 / tr);
-
-    println!("{}: {:#?}", Int::NAME, df2.get::<Int, _>().describe());
-
-    let df1j = df1.clone();
-    let startr = time::Instant::now();
-    let df3 = df1j.inner_join::<Int, Int, _, _, _>(&df1);
-    let tr = elapsed_secs(startr);
-    println!("Joined to self in {}s", tr);
-
-    let df1j = df1.clone();
-    let startr = time::Instant::now();
-    let _df4 = df1j.inner_join::<Int, Int, _, _, _>(&df1);
-    let tr = elapsed_secs(startr);
-    println!("Joined to self again in {}s", tr);
-
-    println!("{}: {:#?}", Int::NAME, df3.get::<Int, _>().describe());
+    let t = time::Instant::now();
+    let _df2: Frame4<Int, Float, Bool, Strings> = read_csv(&path).unwrap();
+    let tr = elapsed_secs(t);
+    println!("Read CSV from {} in {}s ({:.0} lines/sec)", path.display(), tr, SIZE as f64 / tr);
 
     Ok(())
 }
