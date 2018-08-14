@@ -33,9 +33,13 @@ impl Frame<HNil> {
     }
 }
 
-impl<T: ColId> Frame<HCons<T, HNil>> {
-    pub fn with<I: Into<NamedColumn<T>>>(col: I) -> Self {
-        let col = col.into();
+impl Frame<HNil> {
+    pub fn with<Col, Data>(data: Data) -> Frame<HCons<Col, HNil>>
+    where
+        Col: ColId,
+        Data: Into<NamedColumn<Col>>,
+    {
+        let col = data.into();
         Frame {
             len: col.len(),
             hlist: HCons {

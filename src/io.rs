@@ -27,7 +27,8 @@ where
 {
     fn new() -> Self {
         FrameBuilder {
-            inner: H::empty(),
+            // TODO make a proper guess at size (from file size?)
+            inner: H::empty(100_000),
             len: 0,
         }
     }
@@ -56,7 +57,7 @@ pub struct VecWrap<C: ColId>(Vec<Option<C::Output>>);
 pub trait Insertable {
     type VecList: HList;
     type Product;
-    fn empty() -> Self::VecList;
+    fn empty(size_hint: usize) -> Self::VecList;
     fn insert(&mut Self::VecList, product: Self::Product);
     fn to_frame(Self::VecList) -> Self;
 }
@@ -68,8 +69,8 @@ where
 {
     type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
     type VecList = HConsFrunk<VecWrap<Col>, Tail::VecList>;
-    fn empty() -> Self::VecList {
-        <Tail as Insertable>::empty().prepend(VecWrap(Vec::new()))
+    fn empty(size_hint: usize) -> Self::VecList {
+        <Tail as Insertable>::empty(size_hint).prepend(VecWrap(Vec::with_capacity(size_hint)))
     }
     fn insert(fb: &mut Self::VecList, product: Self::Product) {
         let HConsFrunk {
@@ -79,7 +80,8 @@ where
         fb.head.0.push(val);
         Tail::insert(&mut fb.tail, rest);
     }
-    fn to_frame(fb: Self::VecList) -> Self {
+    fn to_frame(mut fb: Self::VecList) -> Self {
+        fb.head.0.shrink_to_fit();
         HConsFrame {
             head: fb.head.0.into(),
             tail: Tail::to_frame(fb.tail),
@@ -90,7 +92,7 @@ where
 impl Insertable for HNil {
     type Product = HNil;
     type VecList = HNil;
-    fn empty() -> Self::VecList {
+    fn empty(_size_hint: usize) -> Self::VecList {
         HNil
     }
     fn insert(_fb: &mut Self::VecList, _product: Self::Product) {}
@@ -265,7 +267,6 @@ mod tests {
     use frame::test_fixtures::*;
     use frame_alias::*;
 
-    // TODO add string escaping
     #[test]
     fn test_write_writer() -> Result<()> {
         let mut w: Vec<u8> = Vec::new();
