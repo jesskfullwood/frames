@@ -17,7 +17,6 @@ define_col!(Strings, String, strings);
 const SIZE: usize = 10_000_000;
 
 fn main() -> Result<()> {
-
     // Create frame
 
     let t = time::Instant::now();
@@ -84,7 +83,12 @@ fn main() -> Result<()> {
     let t = time::Instant::now();
     df1.write_csv(&path)?;
     let tw = elapsed_secs(t);
-    println!("Wrote CSV to {} in {}s ({:.0} lines/sec)", path.display(), tw, SIZE as f64 / tw);
+    println!(
+        "Wrote CSV to {} in {}s ({:.0} lines/sec)",
+        path.display(),
+        tw,
+        SIZE as f64 / tw
+    );
 
     // Read from CSV
 
@@ -92,7 +96,12 @@ fn main() -> Result<()> {
     let t = time::Instant::now();
     let _df2: Frame4<Int, Float, Bool, Strings> = read_csv(&path).unwrap();
     let tr = elapsed_secs(t);
-    println!("Read CSV from {} in {}s ({:.0} lines/sec)", path.display(), tr, SIZE as f64 / tr);
+    println!(
+        "Read CSV from {} in {}s ({:.0} lines/sec)",
+        path.display(),
+        tr,
+        SIZE as f64 / tr
+    );
 
     Ok(())
 }

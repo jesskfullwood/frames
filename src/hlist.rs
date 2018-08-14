@@ -1,5 +1,6 @@
 use column::{ColId, Mask, NamedColumn};
-pub use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
+pub use frunk::hlist::HCons as HConsFrunk;
+use frunk::hlist::{HList, HNil};
 pub use frunk::indices::{Here, There};
 
 pub type HCons<C, Tail> = HConsFrunk<NamedColumn<C>, Tail>;

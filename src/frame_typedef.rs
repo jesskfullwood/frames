@@ -1,5 +1,6 @@
 use frame::Frame;
-use hlist::{HCons, HConsFrunk, HNil, Transformer};
+use frunk::HNil;
+use hlist::{HCons, HConsFrunk, Transformer};
 
 pub type Frame0 = Frame<HNil>;
 

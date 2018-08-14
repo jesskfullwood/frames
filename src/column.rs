@@ -1,18 +1,24 @@
 use bit_vec::BitVec;
 use num::traits::AsPrimitive;
 use num::{self, Num};
+use smallvec;
 
 use std;
 use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use {id, Array, IndexKeys, IndexMap, IndexVec, StdResult};
+use {id, Array, StdResult};
 
-// TODO Bring back Arc!
+// TODO benchmark smallvec vs Vec
+pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
+type IndexMap<T> = HashMap<T, IndexVec>;
+type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamedColumn<T: ColId>(Column<T::Output>);
 
@@ -221,6 +227,7 @@ impl<T: Sized> Column<T> {
         }
     }
 
+    /// Iterate over the values of the column
     pub fn iter(&self) -> impl Iterator<Item = Option<&T>> + '_ {
         self.0
             .null_vec
@@ -229,6 +236,7 @@ impl<T: Sized> Column<T> {
             .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
+    /// Iterate over the none-null values of the column
     pub fn iter_notnull(&self) -> impl Iterator<Item = &T> + '_ {
         self.0
             .null_vec

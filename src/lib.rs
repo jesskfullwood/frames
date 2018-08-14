@@ -10,7 +10,6 @@ extern crate ordered_float;
 extern crate serde;
 extern crate smallvec;
 
-use std::collections::HashMap;
 use std::ops::Index;
 
 pub use column::{ColId, Column, NamedColumn};
@@ -20,16 +19,12 @@ pub use io::read_csv;
 #[macro_use]
 pub mod column;
 pub mod frame;
-mod frame_alias;
+mod frame_typedef;
 pub(crate) mod hlist;
 pub mod io;
 
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
-// TODO benchmark smallvec vs Vec
-type IndexVec = smallvec::SmallVec<[usize; 2]>;
-type IndexMap<T> = HashMap<T, IndexVec>;
-type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
 
 // TODO Pretty-printing of Frame
 

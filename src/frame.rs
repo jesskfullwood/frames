@@ -1,10 +1,10 @@
-use column::{ColId, Column, Mask, NamedColumn};
-pub use frame_alias::*;
-use hlist::*;
-use {id, IndexVec};
+use column::{ColId, Column, IndexVec, Mask, NamedColumn};
+pub use frame_typedef::*;
+use hlist::{Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Transformer};
+use id;
 
 use frunk::generic::Generic;
-use frunk::hlist::{Plucker, Selector};
+use frunk::hlist::{HList, HNil, Plucker, Selector};
 
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -558,6 +558,7 @@ pub(crate) mod test_fixtures {
 pub(crate) mod tests {
     use super::test_fixtures::*;
     use super::*;
+    use frunk::indices::{Here, There};
 
     // TODO convenient column literal macro
     #[test]

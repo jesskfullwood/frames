@@ -265,7 +265,7 @@ where
 mod tests {
     use super::*;
     use frame::test_fixtures::*;
-    use frame_alias::*;
+    use frame_typedef::*;
 
     #[test]
     fn test_write_writer() -> Result<()> {
