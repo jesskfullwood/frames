@@ -63,6 +63,24 @@ fn main() -> Result<()> {
     assert_eq!(mean, 5000000.);
     println!("Described Float column in {}s", elapsed_secs(t));
 
+    // Iter rows
+
+    let t = time::Instant::now();
+    let sum = df1.iter_rows().fold(
+        0.,
+        |acc, (_, flt, _, _)| if let Some(v) = flt { acc + v } else { acc },
+    );
+    assert_eq!(sum, 50000000000000.0);
+    println!("Iterated rows in in {}s", elapsed_secs(t));
+
+    let t = time::Instant::now();
+    let sum = vec.iter().fold(
+        0.,
+        |acc, (_, flt, _, _)| if let Some(v) = flt { acc + v } else { acc },
+    );
+    assert_eq!(sum, 50000000000000.0);
+    println!("Iterated alt rows in in {}s", elapsed_secs(t));
+
     // Build index
 
     let t = time::Instant::now();
