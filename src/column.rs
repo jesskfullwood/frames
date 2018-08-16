@@ -1,6 +1,6 @@
 use bit_vec::BitVec;
 use num::traits::AsPrimitive;
-use num::{self, Num};
+use num::{self, Bounded, Num};
 use smallvec;
 
 use std;
@@ -158,7 +158,8 @@ impl<T: Debug> Debug for Column<T> {
             .map(|v| {
                 v.map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| String::from("NA"))
-            }).collect();;
+            })
+            .collect();
         write!(
             f,
             "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
@@ -245,11 +246,13 @@ impl<T: Sized> Column<T> {
             .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
-    // TODO this is underused
+    /// Construct a new column by applying `func` to contents
     pub fn map<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Column<R> {
         Column::new(self.iter().map(|v| func(v)))
     }
 
+    /// Construct a new column by applying `func` to non-null contents
+    /// (effectively filtering out nulls)
     pub fn map_notnull<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
         Column::new(self.iter().map(|v| {
             match v {
@@ -289,7 +292,8 @@ fn push_maybe_null<T>(
         None => {
             null_vec.push(false);
             *null_count += 1;
-            // TODO this is UB when we try to DROP it, will probably segfault
+            // TODO this is UB when we try to DROP it, will possibly segfault
+            // Just use a default bound instead?
             let scary: T = unsafe { ::std::mem::zeroed() };
             data.push(ManuallyDrop::new(scary))
         }
@@ -297,6 +301,20 @@ fn push_maybe_null<T>(
 }
 
 impl<T: Clone> Column<T> {
+    pub fn filter(&self, func: impl Fn(Option<&T>) -> bool) -> Self {
+        Column::new(
+            self.iter()
+                .filter_map(|v| if func(v) { Some(v.cloned()) } else { None }),
+        )
+    }
+
+    pub fn filter_notnull(&self, func: impl Fn(&T) -> bool) -> Self {
+        Column::new_notnull(
+            self.iter_notnull()
+                .filter_map(|v| if func(v) { Some(v.clone()) } else { None }),
+        )
+    }
+
     /// Create new Column taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Column<T> {
         Column::new(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
@@ -325,7 +343,8 @@ impl<T: Clone> Column<T> {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().unwrap().clone()
-            }).collect();
+            })
+            .collect();
         Column::new_notnull(data)
     }
 
@@ -497,6 +516,7 @@ impl<T: Hash + Clone + Eq> Column<T> {
     }
 }
 
+// TODO use SIMD!
 impl<T: Num + Copy> Column<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
@@ -533,21 +553,24 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     }
 
     /// Calculate summary statistics for the column
-    pub fn describe(&self) -> Describe {
-        let mut min = std::f64::MAX;
-        let mut max = std::f64::MIN;
+    pub fn describe(&self) -> Describe<T>
+    where
+        T: Bounded + PartialOrd,
+    {
+        let mut min = T::max_value();
+        let mut max = T::min_value();
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
         let len = self.count_notnull();
 
-        self.iter().filter_map(id).for_each(|n| {
-            let n: f64 = n.as_();
+        self.iter().filter_map(id).for_each(|&n| {
             if n < min {
                 min = n;
             }
             if n > max {
                 max = n
             }
+            let n = n.as_();
             sigmafxsqr += n * n;
             sigmafx += n;
         });
@@ -619,12 +642,16 @@ impl From<Column<bool>> for Mask {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Describe {
-    // TODO Quartiles?
+pub struct Describe<N: Num> {
     pub len: usize,
     pub null_count: usize,
-    pub min: f64,
-    pub max: f64,
+    pub min: N,
+    // TODO do we want these?
+    // pub first_quartile: N,
+    // pub median: N,
+    // pub third_quartile: N,
+    // pub mode: (N, usize),
+    pub max: N,
     pub mean: f64,
     pub stdev: f64,
 }

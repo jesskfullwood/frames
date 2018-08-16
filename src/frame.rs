@@ -504,7 +504,8 @@ where
                         .filter_map(id)
                         .collect();
                     func(&to_acc)
-                }).collect()
+                })
+                .collect()
         };
         let grouped_frame = self.grouped_frame.addcol(NamedColumn::with(res)).unwrap();
         GroupBy {
@@ -546,11 +547,11 @@ pub(crate) mod test_fixtures {
             .addcol(col![5., None, 3., 2., 1.])
             .unwrap()
             .addcol(
-                r#"this,'" is the words here"#
-                    .split(' ')
+                r#"this,'" is the words here"#.split(' ')
                     .map(String::from)
                     .map(Some),
-            ).unwrap()
+            )
+            .unwrap()
     }
 }
 
@@ -613,8 +614,7 @@ pub(crate) mod tests {
         }
 
         {
-            let f1: Frame2<IntT, FloatT> =
-                Frame::new().addcol(col![10i64])?.addcol(col![1.23f64])?;
+            let f1: Frame2<IntT, FloatT> = Frame::new().addcol(col![10i64])?.addcol(col![1.23f64])?;
             let f2: Frame1<StringT> = Frame::new().addcol(vec![Some(String::from("Hello"))])?;
             let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
         }
@@ -750,7 +750,7 @@ pub(crate) mod tests {
             vec![
                 (Some(&1), None, Some(&false)),
                 (Some(&2), Some(&5.), None),
-                (None, Some(&4.), Some(&true))
+                (None, Some(&4.), Some(&true)),
             ],
         );
     }
