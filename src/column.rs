@@ -46,7 +46,7 @@ where
     }
 }
 
-pub trait ColId {
+pub trait ColId: Copy {
     const NAME: &'static str;
     type Output;
 
@@ -684,9 +684,9 @@ macro_rules! define_col {
         define_col!($tyname, $typ, $tyname);
     };
     ($tyname:ident, $typ:ty, $name:ident) => {
-        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         // This type is just a marker and cannot be instantiated
-        pub enum $tyname {}
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        pub struct $tyname;
         impl ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;

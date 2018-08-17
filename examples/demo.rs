@@ -56,10 +56,10 @@ fn main() -> Result<()> {
     // Describe column
 
     let t = time::Instant::now();
-    let mean = df1.get::<Int, _>().describe().mean;
+    let mean = df1.get(Int).describe().mean;
     assert_eq!(mean, 4999999.5);
     println!("Described Int column in {}s", elapsed_secs(t));
-    let mean = df1.get::<Float, _>().describe().mean;
+    let mean = df1.get(Float).describe().mean;
     assert_eq!(mean, 5000000.);
     println!("Described Float column in {}s", elapsed_secs(t));
 
@@ -84,14 +84,14 @@ fn main() -> Result<()> {
     // Build index
 
     let t = time::Instant::now();
-    df1.get::<Int, _>().build_index();
+    df1.get(Int).build_index();
     println!("Indexed Int column in {}s", elapsed_secs(t));
 
     // Join to self
 
     let df1j = df1.clone();
     let t = time::Instant::now();
-    let _df3 = df1j.inner_join::<Int, Int, _, _, _>(&df1);
+    let _df3 = df1j.inner_join(&df1, Int, Int);
     println!("Joined to self in {}s", elapsed_secs(t));
 
     // Write to CSV

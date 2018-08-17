@@ -77,7 +77,8 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline]
-    pub fn get<Col, Index>(&self) -> &NamedColumn<Col>
+    #[allow(unused_variables)]
+    pub fn get<Col, Index>(&self, col: Col) -> &NamedColumn<Col>
     where
         Col: ColId,
         H: Selector<NamedColumn<Col>, Index>,
@@ -87,20 +88,20 @@ impl<H: HList> Frame<H> {
 
     // TODO: alternative would be to explicitly pass the Col token
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
-    pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<H::FromRoot>>
+    pub fn addcol<Col, Data>(self, col: Data) -> Result<Frame<H::FromRoot>>
     where
         H: Appender<NamedColumn<Col>>,
         H::FromRoot: HList,
         Col: ColId,
         Data: Into<NamedColumn<Col>>,
     {
-        let coll = coll.into();
-        if self.hlist.len() != 0 && coll.len() != self.len {
-            bail!("Mismatched lengths ({} and {})", self.len(), coll.len())
+        let col = col.into();
+        if self.hlist.len() != 0 && col.len() != self.len {
+            bail!("Mismatched lengths ({} and {})", self.len(), col.len())
         } else {
             Ok(Frame {
-                len: coll.len(),
-                hlist: self.hlist.append(coll),
+                len: col.len(),
+                hlist: self.hlist.append(col),
             })
         }
     }
@@ -114,6 +115,8 @@ impl<H: HList> Frame<H> {
 
     pub fn map_replace<Col, NewCol, Index, F>(
         self,
+        _col: Col,
+        _newcol: NewCol,
         func: F,
     ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
     where
@@ -130,6 +133,8 @@ impl<H: HList> Frame<H> {
 
     pub fn map_replace_notnull<Col, NewCol, Index, F>(
         self,
+        _col: Col,
+        _newcol: NewCol,
         func: F,
     ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
     where
@@ -145,8 +150,10 @@ impl<H: HList> Frame<H> {
     }
 
     #[inline(always)]
+    #[allow(unused_variables)]
     pub fn extract<Col, Index>(
         self,
+        col: Col,
     ) -> (
         NamedColumn<Col>,
         Frame<<H as Plucker<NamedColumn<Col>, Index>>::Remainder>,
@@ -197,6 +204,8 @@ where
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
+        lcol: LCol,
+        rcol: RCol,
     ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
@@ -210,18 +219,20 @@ where
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx>,
     {
-        let left = self.get::<LCol, _>();
-        let right = other.get::<RCol, _>();
+        let left = self.get(lcol);
+        let right = other.get(rcol);
         let (leftixs, rightixs) = left.inner_join_locs(right);
         let leftframe = self.copy_locs(&leftixs);
         let rightframe = other.copy_locs(&rightixs);
-        let (_, rightframe) = rightframe.extract::<RCol, _>();
+        let (_, rightframe) = rightframe.extract(rcol);
         leftframe.concat_front(rightframe).unwrap()
     }
 
     pub fn left_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
+        lcol: LCol,
+        rcol: RCol,
     ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
@@ -235,18 +246,20 @@ where
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx>,
     {
-        let left = self.get::<LCol, _>();
-        let right = other.get::<RCol, _>();
+        let left = self.get(lcol);
+        let right = other.get(rcol);
         let (leftixs, rightixs) = left.left_join_locs(right);
         let leftframe = self.copy_locs(&leftixs);
         let rightframe = other.copy_locs_opt(&rightixs);
-        let (_, rightframe) = rightframe.extract::<RCol, _>();
+        let (_, rightframe) = rightframe.extract(rcol);
         leftframe.concat_front(rightframe).unwrap()
     }
 
     pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
+        lcol: LCol,
+        rcol: RCol,
     ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
@@ -260,14 +273,14 @@ where
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx> + Replacer<LCol, LIx>,
     {
-        let left = self.get::<LCol, _>();
-        let right = other.get::<RCol, _>();
+        let left = self.get(lcol);
+        let right = other.get(rcol);
         let (leftixs, rightixs) = left.outer_join_locs(right);
         let mut leftframe = self.copy_locs_opt(&leftixs);
         let rightframe = other.copy_locs_opt(&rightixs);
-        let (rjoined, rightframe) = rightframe.extract::<RCol, _>();
+        let (rjoined, rightframe) = rightframe.extract(rcol);
         let joined = {
-            let ljoined = leftframe.get::<LCol, _>();
+            let ljoined = leftframe.get(lcol);
             NamedColumn::from(Column::new(
                 ljoined
                     .iter()
@@ -293,14 +306,14 @@ where
         }
     }
 
-    pub fn filter<Col, Index, F>(&self, func: F) -> Self
+    pub fn filter<Col, Index, F>(&self, col: Col, func: F) -> Self
     where
         Col: ColId,
         F: Fn(&Col::Output) -> bool,
         H: Selector<NamedColumn<Col>, Index>,
     {
         // TODO also add filter2, filter3...
-        let mask = self.get::<Col, _>().mask(func);
+        let mask = self.get(col).mask(func);
         // We know the mask is the right length
         self.filter_mask(&mask).unwrap()
     }
@@ -315,7 +328,7 @@ where
         })
     }
 
-    pub fn groupby<Col, Index>(self) -> GroupBy<H, HCons<Col, HNil>>
+    pub fn groupby<Col, Index>(self, col: Col) -> GroupBy<H, HCons<Col, HNil>>
     where
         Col: ColId,
         Col::Output: Eq + Clone + Hash,
@@ -323,7 +336,7 @@ where
     {
         let (grouping_index, grouped_col) = {
             // lifetimes workaround
-            let grouping_col = self.get::<Col, _>();
+            let grouping_col = self.get(col);
             let mut index = grouping_col.index_values();
             index.sort_unstable();
             let groupedcol = grouping_col.copy_first_locs(&index);
@@ -492,7 +505,12 @@ where
     // TODO Accumulate WITHOUT nulls
     // Also need an acc WITH nulls
     // Also this is very inefficient and uses iterate_indices which is also inefficient
-    pub fn accumulate<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, G::FromRoot>
+    pub fn accumulate<Col, NewCol, Index, AccFn>(
+        self,
+        col: Col,
+        _newcol: NewCol,
+        func: AccFn,
+    ) -> GroupBy<H, G::FromRoot>
     where
         Col: ColId,
         NewCol: ColId,
@@ -502,7 +520,7 @@ where
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
         let res: Vec<NewCol::Output> = {
-            let grouped_col = self.frame.get::<Col, _>();
+            let grouped_col = self.frame.get(col);
             self.grouping_index
                 .iter()
                 .map(|grp| {
@@ -523,7 +541,12 @@ where
     }
 
     /// Shorthand for accumulate
-    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, G::FromRoot>
+    pub fn acc<Col, NewCol, Index, AccFn>(
+        self,
+        col: Col,
+        newcol: NewCol,
+        func: AccFn,
+    ) -> GroupBy<H, G::FromRoot>
     where
         Col: ColId,
         NewCol: ColId,
@@ -532,7 +555,7 @@ where
         G::FromRoot: HList,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
-        self.accumulate(func)
+        self.accumulate(col, newcol, func)
     }
 
     pub fn done(self) -> Frame<G> {
@@ -580,22 +603,22 @@ pub(crate) mod tests {
         assert_eq!(f.num_cols(), 3);
         assert_eq!(f.len, 1);
         {
-            let f = f.get::<FloatT, _>();
+            let f = f.get(FloatT);
             assert_eq!(f, &[1.23f64])
         }
-        let (v, f) = f.extract::<IntT, _>();
+        let (v, f) = f.extract(IntT);
         assert_eq!(v, &[10]);
-        let (v, f) = f.extract::<StringT, _>();
-        assert_eq!(v, &[String::from("Hello")]);
-        let (v, _): (_, Frame0) = f.extract::<FloatT, _>();
+        let (v, f) = f.pop();
         assert_eq!(v, &[1.23]);
+        let (v, _) = f.extract(StringT);
+        assert_eq!(v, &[String::from("Hello")]);
         Ok(())
     }
 
     #[test]
     fn test_double_insert() -> Result<()> {
         let f: Frame2<IntT, IntT> = Frame::with(col![10]).addcol(col![101])?;
-        let (v, _) = f.extract::<IntT, There<Here>>();
+        let (v, _) = f.extract::<IntT, There<Here>>(IntT);
         assert_eq!(v, &[101]);
         Ok(())
     }
@@ -608,7 +631,7 @@ pub(crate) mod tests {
             .addcol(vec![Some(String::from("Hello"))])?;
         define_col!(Added, i64);
         let f = f.addcol::<Added, _>(col![123])?;
-        let v = f.get::<Added, _>();
+        let v = f.get(Added);
         assert_eq!(v, &[123]);
         Ok(())
     }
@@ -643,11 +666,11 @@ pub(crate) mod tests {
     fn test_mask() -> Result<()> {
         let f = quickframe();
         // TODO document - keep if true or discard-if-true? At moment it's keep-if-true
-        let mask = f.get::<IntT, _>().mask(|&v| v > 2);
+        let mask = f.get(IntT).mask(|&v| v > 2);
         let f2 = f.filter_mask(&mask)?;
-        assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
+        assert_eq!(f2.get(IntT), &[3, 4]);
         // Fails with incorrect len
-        let mask2 = f2.get::<IntT, _>().mask(|&v| v > 2);
+        let mask2 = f2.get(IntT).mask(|&v| v > 2);
         assert!(f.filter_mask(&mask2).is_err());
         Ok(())
     }
@@ -656,38 +679,36 @@ pub(crate) mod tests {
     fn test_filter() {
         // basically same as above
         let f = quickframe();
-        let f2 = f.filter::<IntT, _, _>(|&v| v > 2);
+        let f2 = f.filter(IntT, |&v| v > 2);
         assert_eq!(f2.len(), 2);
-        assert_eq!(f2.get::<IntT, _>(), &[3, 4]);
-        assert_eq!(f2.get::<FloatT, _>(), &[2., 1.]);
+        assert_eq!(f2.get(IntT), &[3, 4]);
+        assert_eq!(f2.get(FloatT), &[2., 1.]);
     }
 
     #[test]
     fn test_groupby() -> Result<()> {
-        // TODO special method for first column, or some kind of convenience builder
-        let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
-            .addcol(col![1, 3, 2, 3, 4, 2])?
+        let f: Frame3<IntT, FloatT, BoolT> = Frame::with(col![1, 3, 2, 3, 4, 2])
             .addcol(col![1., 2., 1., 1., 1., 1.])?
             .addcol(col![true, false, true, false, true, false])?;
         define_col!(FloatSum, f64);
         define_col!(TrueCt, u32);
-        // TODO can we rewrite to get rid of the dangling type parameters?
         let g = f
-            .groupby::<IntT, _>()
-            .acc::<FloatT, FloatSum, _, _>(|slice| slice.iter().map(|v| *v).sum())
-            .acc::<BoolT, TrueCt, _, _>(|slice| slice.iter().map(|&&v| if v { 1 } else { 0 }).sum())
-            .done();
-        assert_eq!(g.get::<IntT, _>(), &[1, 3, 2, 4]);
-        assert_eq!(g.get::<FloatSum, _>(), &[1., 3., 2., 1.]);
-        assert_eq!(g.get::<TrueCt, _>(), &[1, 0, 1, 1]);
+            .groupby(IntT)
+            .acc(FloatT, FloatSum, |slice| slice.iter().map(|v| *v).sum())
+            .acc(BoolT, TrueCt, |slice| {
+                slice.iter().map(|&&v| if v { 1 } else { 0 }).sum()
+            }).done();
+        assert_eq!(g.get(IntT), &[1, 3, 2, 4]);
+        assert_eq!(g.get(FloatSum), &[1., 3., 2., 1.]);
+        assert_eq!(g.get(TrueCt), &[1, 0, 1, 1]);
         Ok(())
     }
 
     #[test]
     fn test_map_replace() {
         let f = quickframe();
-        let f2 = f.map_replace_notnull::<FloatT, FloatT, _, _>(|&v| v * v);
-        assert_eq!(f2.get::<FloatT, _>(), &col![25., None, 9., 4., 1.]);
+        let f2 = f.map_replace_notnull(FloatT, FloatT, |&v| v * v);
+        assert_eq!(f2.get(FloatT), &col![25., None, 9., 4., 1.]);
     }
 
     #[test]
@@ -697,9 +718,9 @@ pub(crate) mod tests {
         let f2: Frame2<IntT, BoolT> = Frame::new()
             .addcol(col![3, None, 2, 2])?
             .addcol(col![None, false, true, false])?;
-        let f3 = f1.inner_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(f3.get::<IntT, _>(), &[2, 2, 3]);
-        assert_eq!(f3.get::<BoolT, _>(), &col![true, false, None]);
+        let f3 = f1.inner_join(&f2, IntT, IntT);
+        assert_eq!(f3.get(IntT), &[2, 2, 3]);
+        assert_eq!(f3.get(BoolT), &col![true, false, None]);
         Ok(())
     }
 
@@ -713,12 +734,9 @@ pub(crate) mod tests {
             .addcol(col![2, 2, None, 1, 3])?
             .addcol(col![None, false, true, false, None])?;
 
-        let f3 = f1.left_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(f3.get::<IntT, _>(), &col![3, None, 2, 2, 2, 2]);
-        assert_eq!(
-            f3.get::<BoolT, _>(),
-            &col![None, None, None, false, None, false]
-        );
+        let f3 = f1.left_join(&f2, IntT, IntT);
+        assert_eq!(f3.get(IntT), &col![3, None, 2, 2, 2, 2]);
+        assert_eq!(f3.get(BoolT), &col![None, None, None, false, None, false]);
         Ok(())
     }
 
@@ -726,8 +744,8 @@ pub(crate) mod tests {
     fn test_outer_join_nones() -> Result<()> {
         let f1: Frame1<IntT> = Frame::new().addcol(col![None])?;
         let f2: Frame1<IntT> = Frame::new().addcol(col![None, None])?;
-        let f3 = f1.outer_join(&f2);
-        assert_eq!(f3.get(), &col![None, None, None]);
+        let f3 = f1.outer_join(&f2, IntT, IntT);
+        assert_eq!(f3.get(IntT), &col![None, None, None]);
         Ok(())
     }
 
@@ -739,8 +757,8 @@ pub(crate) mod tests {
         let f2: Frame2<IntT, BoolT> = Frame::new()
             .addcol(col![None, 3, 3, 2, 5])?
             .addcol(col![true, None, false, true, None])?;
-        let f3 = f1.outer_join::<IntT, IntT, _, _, _>(&f2);
-        assert_eq!(f3.get::<IntT, _>(), &col![3, 3, None, 2, None, None, 5]);
+        let f3 = f1.outer_join(&f2, IntT, IntT);
+        assert_eq!(f3.get(IntT), &col![3, 3, None, 2, None, None, 5]);
         Ok(())
     }
 
