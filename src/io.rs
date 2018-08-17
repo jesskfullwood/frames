@@ -261,40 +261,40 @@ where
     // }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use frame::test_fixtures::*;
-    use frame_typedef::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use frame::test_fixtures::*;
+//     use frame_typedef::*;
 
-    #[test]
-    fn test_write_writer() -> Result<()> {
-        let mut w: Vec<u8> = Vec::new();
-        let f = quickframe();
-        let _ = f.write_writer(&mut w)?;
-        let expect = r#"int_col,float_col,string_col
-1,5,"this,'"""
-2,,is
-,3,the
-3,2,words
-4,1,here
-"#;
-        assert_eq!(expect, String::from_utf8_lossy(&w));
-        Ok(())
-    }
+//     #[test]
+//     fn test_write_writer() -> Result<()> {
+//         let mut w: Vec<u8> = Vec::new();
+//         let f = quickframe();
+//         let _ = f.write_writer(&mut w)?;
+//         let expect = r#"int_col,float_col,string_col
+// 1,5,"this,'"""
+// 2,,is
+// ,3,the
+// 3,2,words
+// 4,1,here
+// "#;
+//         assert_eq!(expect, String::from_utf8_lossy(&w));
+//         Ok(())
+//     }
 
-    #[test]
-    fn test_reader_csv() -> Result<()> {
-        let expect = quickframe();
-        let csv = r#"int_col,float_col,string_col
-1,5,"this,'"""
-2,,is
-,3,the
-3,2,words
-4,1,here
-"#;
-        let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
-        assert_eq!(frame, expect);
-        Ok(())
-    }
-}
+//     #[test]
+//     fn test_reader_csv() -> Result<()> {
+//         let expect = quickframe();
+//         let csv = r#"int_col,float_col,string_col
+// 1,5,"this,'"""
+// 2,,is
+// ,3,the
+// 3,2,words
+// 4,1,here
+// "#;
+//         let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
+//         assert_eq!(frame, expect);
+//         Ok(())
+//     }
+// }

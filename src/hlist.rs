@@ -216,3 +216,49 @@ pub trait Transformer {
     fn nest(flat: Self::Flattened) -> Self;
     fn flatten(self) -> Self::Flattened;
 }
+
+// ### Setter ###
+
+pub trait Setter<Col: ColId, Index> {
+    type Returned: HList;
+    fn set(self, item: NamedColumn<Col>) -> Self::Returned;
+}
+
+impl<Col, Tail> Setter<Col, Here> for HCons<Col, Tail>
+    where
+          Col: ColId,
+          Tail: HList,
+{
+    type Returned = HCons<Col, Tail>;
+    fn set(self, item: NamedColumn<Col>) -> Self::Returned {
+        HCons {
+            head: item,
+            tail: self.tail
+        }
+    }
+}
+
+impl<Head, Tail, FromTail, TailIndex> Setter<FromTail, There<TailIndex>> for HCons<Head, Tail>
+where
+    Head: ColId,
+    FromTail: ColId,
+    Tail: HList + Setter<FromTail, TailIndex>,
+{
+    type Returned = HCons<Head, Tail::Returned>;
+    fn set(self, item: NamedColumn<FromTail>) -> HCons<Head, Tail::Returned> {
+        HCons {
+            head: self.head,
+            tail: self.tail.set(item)
+        }
+    }
+}
+
+impl<Col: ColId> Setter<Col, Here> for HNil {
+    type Returned = HCons<Col, HNil>;
+    fn set(self, item: NamedColumn<Col>) -> HCons<Col, HNil> {
+        HCons {
+            head: item,
+            tail: self
+        }
+    }
+}

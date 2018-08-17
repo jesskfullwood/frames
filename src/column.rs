@@ -348,7 +348,8 @@ impl<T: Clone> Column<T> {
         Column::new_notnull(data)
     }
 
-    // Filter collection from mask. Nulls are considered equivalent to false
+    /// Filter collection from mask, creating a new collection.
+    /// Nulls are considered equivalent to false
     pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
         Column::new(self.iter().zip(mask.iter()).filter_map(|(v, b)| {
@@ -685,7 +686,7 @@ macro_rules! define_col {
     ($tyname:ident, $typ:ty, $name:ident) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         // This type is just a marker and cannot be instantiated
-        pub enum $tyname {}
+        pub struct $tyname;
         impl ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;
