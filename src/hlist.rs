@@ -79,6 +79,8 @@ impl HListClonable for HNil {
     }
 }
 
+// ### Appender ###
+
 pub trait Appender<T> {
     type FromRoot;
     fn append(self, c: T) -> Self::FromRoot;

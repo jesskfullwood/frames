@@ -9,12 +9,13 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Add, Deref, DerefMut, Div, Mul, Rem, Sub, Neg};
 use std::sync::Arc;
 
 use {id, Array, StdResult};
 
 // TODO benchmark smallvec vs Vec
+// TODO add Add, Subtract etc
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
 type IndexMap<T> = HashMap<T, IndexVec>;
 type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
@@ -528,6 +529,40 @@ impl<T: Num + Copy> Column<T> {
     }
 }
 
+// ### Primitive op impls ###
+// TODO operations between columns
+
+macro_rules! impl_op {
+    ($typ:ident, $func:ident) => {
+        impl<T> $typ<T> for Column<T>
+        where
+            T: $typ + Clone,
+        {
+            type Output = Column<T::Output>;
+            fn $func(self, rhs: T) -> Self::Output {
+                //TODO map in-place?
+                self.map_notnull(|v| T::$func(v.clone(), rhs.clone()))
+            }
+        }
+    };
+}
+
+impl_op!(Add, add);
+impl_op!(Sub, sub);
+impl_op!(Mul, mul);
+impl_op!(Div, div);
+impl_op!(Rem, rem);
+
+impl<T> Neg for Column<T>
+where
+    T: Neg + Clone,
+{
+    type Output = Column<T::Output>;
+    fn neg(self) -> Self::Output {
+        self.map_notnull(|v| T::neg(v.clone()))
+    }
+}
+
 impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     /// Calculate the mean of the collection. Ignores null values
     pub fn mean(&self) -> f64 {
@@ -765,5 +800,13 @@ mod tests {
         let c: NamedColumn<Me> = col![].into();
         assert_eq!(Me::name(), "mine");
         assert_eq!(c.name(), "mine");
+    }
+
+    #[test]
+    fn test_basic_ops() {
+        let c = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
+        let c2 = (c.clone() + 2) * 2;
+        let c3 = (c2 / 2) - 2;
+        assert_eq!(c, c3);
     }
 }
