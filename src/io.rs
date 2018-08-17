@@ -181,7 +181,7 @@ where
         <H as RowTuple<'a>>::ProductOptRef: Transformer,
         <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
     {
-        let names = self.names();
+        let names = self.colnames();
         let mut w = csv::Writer::from_writer(w);
         w.serialize(names)?;
         for row in self.iter_rows() {

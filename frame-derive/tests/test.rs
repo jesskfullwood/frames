@@ -1,11 +1,14 @@
 #[macro_use]
 extern crate frame_derive;
+#[macro_use]
 extern crate frames;
 extern crate frunk;
 #[macro_use]
 extern crate frunk_derives;
 #[macro_use]
 extern crate frunk_core;
+
+use frames::*;
 
 #[derive(Clone, Debug, Frame)]
 struct Policy {
@@ -44,6 +47,10 @@ fn test_frunky() {
     let parts: Parts = frunk::from_generic(h.clone());
     let p1: Person = frunk::from_generic(h);
     let p2: Person = frunk::convert_from(parts.clone());
+
+    Frame::with(col![1, 2, 3]);
+
+
 }
 
 #[test]
@@ -63,10 +70,6 @@ fn test_derive() {
         },
     ];
 
-    let peopleframe = PersonFrame::from_rows(people);
-
-
+    // let peopleframe = PersonFrame::from_rows(people);
 
 }
-
-// type PersonFrame = Frame4<Id, Sex, Name, Age>

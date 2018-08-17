@@ -67,7 +67,7 @@ impl<H: HList> Frame<H> {
         self.hlist.len()
     }
 
-    pub fn names(&self) -> Vec<&'static str>
+    pub fn colnames(&self) -> Vec<&'static str>
     where
         H: HListExt,
     {
@@ -211,7 +211,6 @@ where
         Oth: HList
             + Selector<NamedColumn<RCol>, RIx>
             + Plucker<NamedColumn<RCol>, RIx>
-            + Concat<H>
             + HListClonable,
         <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,

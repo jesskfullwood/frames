@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     // Clone many
 
     let t = time::Instant::now();
-    let clones = vec![df1.clone(); 100_000];
+    let clones: Vec<_> = (0..10_000_000).map(|_| df1.clone()).collect();
     let t = elapsed_secs(t);
     println!("Created {} clones in {}s", clones.len(), t);
 
