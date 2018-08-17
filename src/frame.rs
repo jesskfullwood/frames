@@ -1,6 +1,8 @@
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
-use hlist::{Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Transformer};
+use hlist::{
+    Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Transformer,
+};
 use id;
 
 use frunk::generic::Generic;
@@ -69,7 +71,9 @@ impl<H: HList> Frame<H> {
     where
         H: HListExt,
     {
-        self.hlist.get_names()
+        let mut names = Vec::with_capacity(self.num_cols());
+        self.hlist.get_names(&mut names);
+        names
     }
 
     #[inline]
@@ -83,8 +87,10 @@ impl<H: HList> Frame<H> {
 
     // TODO: alternative would be to explicitly pass the Col token
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
-    pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<HCons<Col, H>>>
+    pub fn addcol<Col, Data>(self, coll: Data) -> Result<Frame<H::FromRoot>>
     where
+        H: Appender<NamedColumn<Col>>,
+        H::FromRoot: HList,
         Col: ColId,
         Data: Into<NamedColumn<Col>>,
     {
@@ -94,7 +100,7 @@ impl<H: HList> Frame<H> {
         } else {
             Ok(Frame {
                 len: coll.len(),
-                hlist: self.hlist.prepend(coll),
+                hlist: self.hlist.append(coll),
             })
         }
     }
@@ -160,11 +166,11 @@ impl<H: HList> Frame<H> {
         )
     }
 
-    pub fn concat<C: HList + Concat<H>>(self, other: Frame<C>) -> Result<Frame<C::Combined>> {
-        other.concat_front(self)
+    pub fn concat_front<C: HList + Concat<H>>(self, other: Frame<C>) -> Result<Frame<C::Combined>> {
+        other.concat(self)
     }
 
-    fn concat_front<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
+    fn concat<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
     where
         H: Concat<C>,
     {
@@ -179,7 +185,7 @@ impl<H: HList> Frame<H> {
         };
         Ok(Frame {
             len,
-            hlist: self.hlist.concat_front(other.hlist),
+            hlist: self.hlist.concat(other.hlist),
         })
     }
 }
@@ -210,7 +216,7 @@ where
         let leftframe = self.copy_locs(&leftixs);
         let rightframe = other.copy_locs(&rightixs);
         let (_, rightframe) = rightframe.extract::<RCol, _>();
-        leftframe.concat(rightframe).unwrap()
+        leftframe.concat_front(rightframe).unwrap()
     }
 
     pub fn left_join<LCol, RCol, Oth, LIx, RIx>(
@@ -235,7 +241,7 @@ where
         let leftframe = self.copy_locs(&leftixs);
         let rightframe = other.copy_locs_opt(&rightixs);
         let (_, rightframe) = rightframe.extract::<RCol, _>();
-        leftframe.concat(rightframe).unwrap()
+        leftframe.concat_front(rightframe).unwrap()
     }
 
     pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
@@ -270,7 +276,7 @@ where
             ))
         };
         leftframe.replace(joined);
-        leftframe.concat(rightframe).unwrap()
+        leftframe.concat_front(rightframe).unwrap()
     }
 
     fn copy_locs(&self, locs: &[usize]) -> Frame<H> {
@@ -486,11 +492,13 @@ where
     // TODO Accumulate WITHOUT nulls
     // Also need an acc WITH nulls
     // Also this is very inefficient and uses iterate_indices which is also inefficient
-    pub fn accumulate<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
+    pub fn accumulate<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, G::FromRoot>
     where
         Col: ColId,
         NewCol: ColId,
         H: Selector<NamedColumn<Col>, Index>,
+        G: Appender<NamedColumn<NewCol>>,
+        G::FromRoot: HList,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
         let res: Vec<NewCol::Output> = {
@@ -504,8 +512,7 @@ where
                         .filter_map(id)
                         .collect();
                     func(&to_acc)
-                })
-                .collect()
+                }).collect()
         };
         let grouped_frame = self.grouped_frame.addcol(NamedColumn::with(res)).unwrap();
         GroupBy {
@@ -516,11 +523,13 @@ where
     }
 
     /// Shorthand for accumulate
-    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, HCons<NewCol, G>>
+    pub fn acc<Col, NewCol, Index, AccFn>(self, func: AccFn) -> GroupBy<H, G::FromRoot>
     where
         Col: ColId,
         NewCol: ColId,
         H: Selector<NamedColumn<Col>, Index>,
+        G: Appender<NamedColumn<NewCol>>,
+        G::FromRoot: HList,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
         self.accumulate(func)
@@ -547,11 +556,11 @@ pub(crate) mod test_fixtures {
             .addcol(col![5., None, 3., 2., 1.])
             .unwrap()
             .addcol(
-                r#"this,'" is the words here"#.split(' ')
+                r#"this,'" is the words here"#
+                    .split(' ')
                     .map(String::from)
                     .map(Some),
-            )
-            .unwrap()
+            ).unwrap()
     }
 }
 
@@ -576,7 +585,7 @@ pub(crate) mod tests {
         }
         let (v, f) = f.extract::<IntT, _>();
         assert_eq!(v, &[10]);
-        let (v, f) = f.pop();
+        let (v, f) = f.extract::<StringT, _>();
         assert_eq!(v, &[String::from("Hello")]);
         let (v, _): (_, Frame0) = f.extract::<FloatT, _>();
         assert_eq!(v, &[1.23]);
@@ -585,10 +594,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_double_insert() -> Result<()> {
-        type First = There<Here>;
-        let f: Frame2<IntT, IntT> = Frame::with(col![10]).addcol(col![1])?;
-        let (v, _) = f.extract::<IntT, First>();
-        assert_eq!(v, &[10]);
+        let f: Frame2<IntT, IntT> = Frame::with(col![10]).addcol(col![101])?;
+        let (v, _) = f.extract::<IntT, There<Here>>();
+        assert_eq!(v, &[101]);
         Ok(())
     }
 
@@ -614,7 +622,8 @@ pub(crate) mod tests {
         }
 
         {
-            let f1: Frame2<IntT, FloatT> = Frame::new().addcol(col![10i64])?.addcol(col![1.23f64])?;
+            let f1: Frame2<IntT, FloatT> =
+                Frame::new().addcol(col![10i64])?.addcol(col![1.23f64])?;
             let f2: Frame1<StringT> = Frame::new().addcol(vec![Some(String::from("Hello"))])?;
             let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
         }

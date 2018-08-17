@@ -158,8 +158,7 @@ impl<T: Debug> Debug for Column<T> {
             .map(|v| {
                 v.map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| String::from("NA"))
-            })
-            .collect();
+            }).collect();
         write!(
             f,
             "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
@@ -309,10 +308,13 @@ impl<T: Clone> Column<T> {
     }
 
     pub fn filter_notnull(&self, func: impl Fn(&T) -> bool) -> Self {
-        Column::new_notnull(
-            self.iter_notnull()
-                .filter_map(|v| if func(v) { Some(v.clone()) } else { None }),
-        )
+        Column::new_notnull(self.iter_notnull().filter_map(|v| {
+            if func(v) {
+                Some(v.clone())
+            } else {
+                None
+            }
+        }))
     }
 
     /// Create new Column taking values from provided slice of indices
@@ -343,8 +345,7 @@ impl<T: Clone> Column<T> {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().unwrap().clone()
-            })
-            .collect();
+            }).collect();
         Column::new_notnull(data)
     }
 

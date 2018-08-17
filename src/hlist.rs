@@ -9,7 +9,7 @@ pub type HCons<C, Tail> = HConsFrunk<NamedColumn<C>, Tail>;
 
 pub trait HListExt: HList {
     type Product;
-    fn get_names(&self) -> Vec<&'static str>;
+    fn get_names(&self, names: &mut Vec<&'static str>);
 }
 
 impl<Col, Tail> HListExt for HCons<Col, Tail>
@@ -18,18 +18,15 @@ where
     Tail: HListExt,
 {
     type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
-    fn get_names(&self) -> Vec<&'static str> {
-        let mut ret = self.tail.get_names();
-        ret.push(Col::NAME);
-        ret
+    fn get_names(&self, names: &mut Vec<&'static str>) {
+        names.push(Col::NAME);
+        self.tail.get_names(names);
     }
 }
 
 impl HListExt for HNil {
     type Product = HNil;
-    fn get_names(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
+    fn get_names(&self, _names: &mut Vec<&'static str>) {}
 }
 
 // ### HListClonable ###
@@ -82,16 +79,44 @@ impl HListClonable for HNil {
     }
 }
 
+pub trait Appender<T> {
+    type FromRoot;
+    fn append(self, c: T) -> Self::FromRoot;
+}
+
+impl<T, Head, Tail> Appender<T> for HConsFrunk<Head, Tail>
+where
+    Tail: Appender<T>,
+{
+    type FromRoot = HConsFrunk<Head, Tail::FromRoot>;
+    fn append(self, c: T) -> Self::FromRoot {
+        HConsFrunk {
+            head: self.head,
+            tail: self.tail.append(c),
+        }
+    }
+}
+
+impl<T> Appender<T> for HNil {
+    type FromRoot = HConsFrunk<T, HNil>;
+    fn append(self, c: T) -> Self::FromRoot {
+        HConsFrunk {
+            head: c,
+            tail: self,
+        }
+    }
+}
+
 // ### Concat ###
 
 pub trait Concat<C> {
     type Combined: HList;
-    fn concat_front(self, other: C) -> Self::Combined;
+    fn concat(self, other: C) -> Self::Combined;
 }
 
 impl<C: HList> Concat<C> for HNil {
     type Combined = C;
-    fn concat_front(self, other: C) -> Self::Combined {
+    fn concat(self, other: C) -> Self::Combined {
         other
     }
 }
@@ -102,10 +127,10 @@ where
     Tail: Concat<C>,
 {
     type Combined = HCons<Head, <Tail as Concat<C>>::Combined>;
-    fn concat_front(self, other: C) -> Self::Combined {
+    fn concat(self, other: C) -> Self::Combined {
         HCons {
             head: self.head,
-            tail: self.tail.concat_front(other),
+            tail: self.tail.concat(other),
         }
     }
 }

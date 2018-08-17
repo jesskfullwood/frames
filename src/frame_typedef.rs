@@ -22,37 +22,37 @@ macro_rules! frame_alias {
 
 macro_rules! transformer_impl {
     ($($typs:ident)+) => {
-        impl<$($typs,)+> Transformer for macro_revargs!(cons_frunk $($typs)+) {
+        impl<$($typs,)+> Transformer for cons_frunk!($($typs)+) {
             type Flattened = ($($typs,)+);
             #[allow(non_snake_case)]
             fn nest(flat: Self::Flattened) -> Self {
                 let ($($typs,)+) = flat;
-                macro_revargs!(hlist_structure $($typs)+)
+                hlist_structure!($($typs)+)
             }
             #[allow(non_snake_case)]
             fn flatten(self) -> Self::Flattened {
-                let macro_revargs!(hlist_structure $($typs)+) = self;
+                let hlist_structure!($($typs)+) = self;
                 ($($typs,)+)
             }
         }
     }
 }
 
-macro_rules! macro_revargs {
-    ($macro:ident $($args:ident)*) => {
-        macro_revargs!($macro [$($args)*])
-    };
-    ($macro:ident [$reverse:ident $($to_reverse:ident)*] $($reversed:ident)*) => {
-        macro_revargs!($macro [$($to_reverse)*] $reverse $($reversed)*)
-    };
-    ($macro:ident [] $($reversed:ident)*) => {
-        $macro!($($reversed)*)
-    };
-}
+// macro_rules! macro_revargs {
+//     ($macro:ident $($args:ident)*) => {
+//         macro_revargs!($macro [$($args)*])
+//     };
+//     ($macro:ident [$reverse:ident $($to_reverse:ident)*] $($reversed:ident)*) => {
+//         macro_revargs!($macro [$($to_reverse)*] $reverse $($reversed)*)
+//     };
+//     ($macro:ident [] $($reversed:ident)*) => {
+//         $macro!($($reversed)*)
+//     };
+// }
 
 macro_rules! frame_def {
     ($frame:ident $($typsCur:ident)+) => {
-        pub type $frame<$($typsCur,)+> = Frame<macro_revargs!(cons $($typsCur)+)>;
+        pub type $frame<$($typsCur,)+> = Frame<cons!($($typsCur)+)>;
     }
 }
 
