@@ -4,13 +4,12 @@ use num::{self, Bounded, Num};
 use smallvec;
 
 use std;
-use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use {id, Array, StdResult};
 
@@ -92,12 +91,11 @@ impl<T> Clone for Column<T> {
     }
 }
 
-#[derive(Clone)]
 struct ColumnInner<T> {
     data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
-    index: RefCell<Option<IndexMap<T>>>,
+    index: RwLock<Option<IndexMap<T>>>,
 }
 
 impl<T> Drop for ColumnInner<T> {
@@ -172,7 +170,7 @@ impl<T: Debug> Debug for Column<T> {
         write!(
             f,
             "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
-            self.0.index.borrow().is_some(),
+            self.0.index.read().unwrap().is_some(),
             self.0.null_count,
             vals
         )
@@ -191,7 +189,7 @@ impl<T: Sized> Column<T> {
             null_count,
             null_vec,
             data: Array::new(arr),
-            index: RefCell::new(None),
+            index: RwLock::new(None),
         }))
     }
 
@@ -203,7 +201,7 @@ impl<T: Sized> Column<T> {
             null_count: 0,
             null_vec: BitVec::from_elem(data.len(), true),
             data,
-            index: RefCell::new(None),
+            index: RwLock::new(None),
         }))
     }
 
@@ -229,7 +227,7 @@ impl<T: Sized> Column<T> {
     }
 
     pub fn is_indexed(&self) -> bool {
-        self.0.index.borrow().is_some()
+        self.0.index.read().unwrap().is_some()
     }
 
     /// Returns wrapped value, or None if null,
@@ -393,19 +391,25 @@ impl<T: Hash + Clone + Eq> Column<T> {
             entry.push(ix)
         }
         index.shrink_to_fit(); // we aren't touching this again
-        *self.0.index.borrow_mut() = Some(index);
+        *self.0.index.write().unwrap() = Some(index);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn drop_index(&mut self) {
+        // This is just for use with the benchmarks
+        *self.0.index.write().unwrap() = None
     }
 
     pub fn uniques(&self) -> UniqueIter<T> {
         self.build_index();
         UniqueIter {
-            r: Ref::map(self.0.index.borrow(), |o| o.as_ref().unwrap()),
+            guard: self.0.index.read().unwrap(),
         }
     }
 
     pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
         other.build_index();
-        let rborrow = other.0.index.borrow();
+        let rborrow = other.0.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
@@ -427,7 +431,7 @@ impl<T: Hash + Clone + Eq> Column<T> {
 
     pub(crate) fn left_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<Option<usize>>) {
         other.build_index();
-        let rborrow = other.0.index.borrow();
+        let rborrow = other.0.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
@@ -461,9 +465,9 @@ impl<T: Hash + Clone + Eq> Column<T> {
     ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
         self.build_index();
         other.build_index();
-        let lborrow = self.0.index.borrow();
+        let lborrow = self.0.index.read().unwrap();
         let lindex = lborrow.as_ref().unwrap();
-        let rborrow = other.0.index.borrow();
+        let rborrow = other.0.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
@@ -526,7 +530,7 @@ impl<T: Hash + Clone + Eq> Column<T> {
     // TODO this seems very inefficient, what is it for?
     pub(crate) fn index_values(&self) -> Vec<IndexVec> {
         self.build_index();
-        let borrow = self.0.index.borrow();
+        let borrow = self.0.index.read().unwrap();
         let colix = borrow.as_ref().unwrap();
         colix.values().cloned().collect()
     }
@@ -676,7 +680,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
 // TODO document usage
 #[macro_export]
 macro_rules! col {
-    ($($vals:tt),*) => {
+    ($($vals:tt),* $(,)*) => {
         {
             let mut v = Vec::new();
             $(
@@ -747,7 +751,9 @@ pub struct UniqueIter<'a, T: 'a>
 where
     T: Eq + Hash,
 {
-    r: Ref<'a, IndexMap<T>>,
+    // Unfortunately this must be an `Option` because RwLockReadGuard
+    // lacks a `map` method (unlike RefCell)
+    guard: RwLockReadGuard<'a, Option<IndexMap<T>>>,
 }
 
 impl<'a, 'b: 'a, T: 'a> IntoIterator for &'b UniqueIter<'a, T>
@@ -758,7 +764,8 @@ where
     type Item = &'a T;
 
     fn into_iter(self) -> IndexKeys<'a, T> {
-        self.r.keys()
+        // safe to unwrap the `Option<IndexMap>` as we know index has been built
+        self.guard.as_ref().unwrap().keys()
     }
 }
 

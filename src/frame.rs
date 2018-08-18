@@ -1,15 +1,13 @@
+use frunk::hlist::{HList, HNil, Plucker, Selector};
+
+use std::hash::Hash;
+
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
 use hlist::{
     Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Transformer,
 };
 use id;
-
-use frunk::generic::Generic;
-use frunk::hlist::{HList, HNil, Plucker, Selector};
-
-use std::hash::Hash;
-use std::marker::PhantomData;
 
 use Result;
 // The HList implementation is a modified version of the one found in the `frunk` crate.
@@ -60,7 +58,7 @@ impl Default for Frame<HNil> {
 
 #[macro_export]
 macro_rules! frame {
-    ($($col:expr,)*) => {
+    ($($col:expr),* $(,)*) => {
         {
             let f = Frame::new();
             $(
@@ -99,7 +97,6 @@ impl<H: HList> Frame<H> {
         Selector::get(&self.hlist)
     }
 
-    // TODO: alternative would be to explicitly pass the Col token
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
     pub fn addcol<Col, Data>(self, col: Data) -> Result<Frame<H::FromRoot>>
     where
@@ -110,7 +107,11 @@ impl<H: HList> Frame<H> {
     {
         let col = col.into();
         if self.hlist.len() != 0 && col.len() != self.len {
-            bail!("Mismatched lengths ({} and {})", self.len(), col.len())
+            bail!(
+                "Bad column length (expected {}, found {})",
+                self.len(),
+                col.len()
+            )
         } else {
             Ok(Frame {
                 len: col.len(),
@@ -190,7 +191,7 @@ impl<H: HList> Frame<H> {
         other.concat(self)
     }
 
-    fn concat<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
+    pub fn concat<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
     where
         H: Concat<C>,
     {
@@ -267,6 +268,7 @@ where
         leftframe.concat_front(rightframe).unwrap()
     }
 
+    // TODO are all these bounds necessary?
     pub fn outer_join<LCol, RCol, Oth, LIx, RIx>(
         self,
         other: &Frame<Oth>,
@@ -798,8 +800,21 @@ pub(crate) mod tests {
 
     #[test]
     fn test_frame_macro() {
+        let _empty = frame![];
         let f: Frame2<IntT, FloatT> = frame![col![1, 2, 3, NA, 4], col![1., 2., 3., NA, 4.],];
         assert_eq!(f.get(IntT), &col![1, 2, 3, NA, 4]);
+    }
+
+    #[test]
+    fn test_threadsafe_frame() {
+        let f = quickframe();
+        let f2 = f.clone();
+        let f3 = f.clone();
+        ::std::thread::spawn(move || {
+            let c = f2.get(IntT);
+            c.build_index();
+        });
+        f.inner_join(&f3, IntT, IntT);
     }
 
     // TODO

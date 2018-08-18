@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["jesskfulwood <jesskfulwood@gmail.com>"]
 
 [dependencies]
-failure = "0.1.1"
+failure = "0.1.2"
 num = "0.2.0"
 new-ordered-float = "1.0.1"
 csv = "1.0.0"
@@ -15,3 +15,6 @@ frunk = "0.2.0"
 
 [dev-dependencies]
 tempdir = "0.3.7"
+
+[features]
+unstable = []
