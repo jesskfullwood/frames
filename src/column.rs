@@ -9,16 +9,17 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
-use std::ops::{Add, Deref, DerefMut, Div, Mul, Rem, Sub, Neg};
+use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::Arc;
 
 use {id, Array, StdResult};
 
 // TODO benchmark smallvec vs Vec
-// TODO add Add, Subtract etc
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
 type IndexMap<T> = HashMap<T, IndexVec>;
 type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
+
+// ### NamedColumn def and impls ###
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamedColumn<T: ColId>(Column<T::Output>);
@@ -56,9 +57,6 @@ pub trait ColId: Copy {
     }
 }
 
-#[derive(Clone)]
-pub struct Column<T>(Arc<ColumnInner<T>>);
-
 impl<T: ColId> Deref for NamedColumn<T> {
     type Target = Column<T::Output>;
     fn deref(&self) -> &Self::Target {
@@ -69,6 +67,28 @@ impl<T: ColId> Deref for NamedColumn<T> {
 impl<T: ColId> DerefMut for NamedColumn<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl<T, O> PartialEq<O> for NamedColumn<T>
+where
+    T: ColId,
+    T::Output: PartialEq,
+    Column<T::Output>: PartialEq<O>,
+{
+    fn eq(&self, other: &O) -> bool {
+        &self.0 == other
+    }
+}
+
+// ### Column def and impls ###
+
+pub struct Column<T>(Arc<ColumnInner<T>>);
+
+impl<T> Clone for Column<T> {
+    // We add a custom clone because derive adds a T: Clone bound
+    fn clone(&self) -> Self {
+        Column(self.0.clone())
     }
 }
 
@@ -103,17 +123,6 @@ impl<T> Drop for ColumnInner<T> {
 impl<T, I: IntoIterator<Item = Option<T>>> From<I> for Column<T> {
     fn from(iter: I) -> Column<T> {
         Column::new(iter)
-    }
-}
-
-impl<T, O> PartialEq<O> for NamedColumn<T>
-where
-    T: ColId,
-    T::Output: PartialEq,
-    Column<T::Output>: PartialEq<O>,
-{
-    fn eq(&self, other: &O) -> bool {
-        &self.0 == other
     }
 }
 
@@ -204,6 +213,11 @@ impl<T: Sized> Column<T> {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Shorthand for clone
+    pub fn c(&self) -> Self {
+        (*self).clone()
     }
 
     pub fn count_null(&self) -> usize {
@@ -518,21 +532,9 @@ impl<T: Hash + Clone + Eq> Column<T> {
     }
 }
 
-// TODO use SIMD!
-impl<T: Num + Copy> Column<T> {
-    // TODO big risk of overflow for ints
-    // use some kind of bigint
-    pub fn sum(&self) -> T {
-        self.iter()
-            .filter_map(id)
-            .fold(num::zero(), |acc, &v| acc + v)
-    }
-}
+// ### Primitive and columnwise op impls ###
 
-// ### Primitive op impls ###
-// TODO operations between columns
-
-macro_rules! impl_op {
+macro_rules! impl_primitive_op {
     ($typ:ident, $func:ident) => {
         impl<T> $typ<T> for Column<T>
         where
@@ -547,11 +549,46 @@ macro_rules! impl_op {
     };
 }
 
-impl_op!(Add, add);
-impl_op!(Sub, sub);
-impl_op!(Mul, mul);
-impl_op!(Div, div);
-impl_op!(Rem, rem);
+macro_rules! impl_columnwise_op {
+    ($typ:ident, $func:ident) => {
+        impl<T> $typ for Column<T>
+        where
+            T: $typ + Clone,
+        {
+            type Output = Column<T::Output>;
+            fn $func(self, rhs: Column<T>) -> Self::Output {
+                //TODO map in-place?
+                if self.len() != rhs.len() {
+                    panic!(
+                        "Column lengths do not match ({} != {})",
+                        self.len(),
+                        rhs.len()
+                    )
+                }
+                let iter = self
+                    .iter()
+                    .zip(rhs.iter())
+                    .map(|(ov1, ov2)| match (ov1, ov2) {
+                        (Some(v1), Some(v2)) => Some(T::$func(v1.clone(), v2.clone())),
+                        _ => None,
+                    });
+                Column::new(iter)
+            }
+        }
+    };
+}
+
+impl_primitive_op!(Add, add);
+impl_primitive_op!(Sub, sub);
+impl_primitive_op!(Mul, mul);
+impl_primitive_op!(Div, div);
+impl_primitive_op!(Rem, rem);
+
+impl_columnwise_op!(Add, add);
+impl_columnwise_op!(Sub, sub);
+impl_columnwise_op!(Mul, mul);
+impl_columnwise_op!(Div, div);
+impl_columnwise_op!(Rem, rem);
 
 impl<T> Neg for Column<T>
 where
@@ -560,6 +597,19 @@ where
     type Output = Column<T::Output>;
     fn neg(self) -> Self::Output {
         self.map_notnull(|v| T::neg(v.clone()))
+    }
+}
+
+// ### basic stats impls ###
+
+// TODO use SIMD!
+impl<T: Num + Copy> Column<T> {
+    // TODO big risk of overflow for ints
+    // use some kind of bigint
+    pub fn sum(&self) -> T {
+        self.iter()
+            .filter_map(id)
+            .fold(num::zero(), |acc, &v| acc + v)
     }
 }
 
@@ -804,9 +854,11 @@ mod tests {
 
     #[test]
     fn test_basic_ops() {
-        let c = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
-        let c2 = (c.clone() + 2) * 2;
+        let c1 = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
+        let c2 = (c1.c() + 2) * 2;
         let c3 = (c2 / 2) - 2;
-        assert_eq!(c, c3);
+        assert_eq!(c1, c3);
+        let c4 = c3.c() * c3 - c1;
+        assert_eq!(c4, col![0, 2, 6, None, 12, 6, 12, 0, None, 20, 2]);
     }
 }
