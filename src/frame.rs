@@ -468,6 +468,7 @@ struct IterElems<'a, H: HList + 'a, T> {
     ret: PhantomData<T>,
 }
 
+// TODO iter elems as struct, somehow
 impl<'a, H, T> Iterator for IterElems<'a, H, T>
 where
     H: HList + RowTuple<'a>,
@@ -574,8 +575,8 @@ pub(crate) mod test_fixtures {
     pub(crate) type Data3 = Frame3<IntT, FloatT, StringT>;
 
     pub(crate) fn quickframe() -> Data3 {
-        Frame::with(col![1, 2, None, 3, 4])
-            .addcol(col![5., None, 3., 2., 1.])
+        Frame::with(col![1, 2, NA, 3, 4])
+            .addcol(col![5., NA, 3., 2., 1.])
             .unwrap()
             .addcol(
                 r#"this,'" is the words here"#
@@ -707,7 +708,7 @@ pub(crate) mod tests {
     fn test_map_replace() {
         let f = quickframe();
         let f2 = f.map_replace_notnull(FloatT, FloatT, |&v| v * v);
-        assert_eq!(f2.get(FloatT), &col![25., None, 9., 4., 1.]);
+        assert_eq!(f2.get(FloatT), &col![25., NA, 9., 4., 1.]);
     }
 
     #[test]
@@ -715,60 +716,60 @@ pub(crate) mod tests {
         // TODO parse a text string once reading csvs is implemented
         let f1 = quickframe();
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(col![3, None, 2, 2])?
-            .addcol(col![None, false, true, false])?;
+            .addcol(col![3, NA, 2, 2])?
+            .addcol(col![NA, false, true, false])?;
         let f3 = f1.inner_join(&f2, IntT, IntT);
         assert_eq!(f3.get(IntT), &[2, 2, 3]);
-        assert_eq!(f3.get(BoolT), &col![true, false, None]);
+        assert_eq!(f3.get(BoolT), &col![true, false, NA]);
         Ok(())
     }
 
     #[test]
     fn test_left_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(col![3, None, 2, 2])?
-            .addcol(col![None, 5., 4., 3.])?;
+            .addcol(col![3, NA, 2, 2])?
+            .addcol(col![NA, 5., 4., 3.])?;
 
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(col![2, 2, None, 1, 3])?
-            .addcol(col![None, false, true, false, None])?;
+            .addcol(col![2, 2, NA, 1, 3])?
+            .addcol(col![NA, false, true, false, NA])?;
 
         let f3 = f1.left_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![3, None, 2, 2, 2, 2]);
-        assert_eq!(f3.get(BoolT), &col![None, None, None, false, None, false]);
+        assert_eq!(f3.get(IntT), &col![3, NA, 2, 2, 2, 2]);
+        assert_eq!(f3.get(BoolT), &col![NA, NA, NA, false, NA, false]);
         Ok(())
     }
 
     #[test]
     fn test_outer_join_nones() -> Result<()> {
-        let f1: Frame1<IntT> = Frame::new().addcol(col![None])?;
-        let f2: Frame1<IntT> = Frame::new().addcol(col![None, None])?;
+        let f1: Frame1<IntT> = Frame::new().addcol(col![NA])?;
+        let f2: Frame1<IntT> = Frame::new().addcol(col![NA, NA])?;
         let f3 = f1.outer_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![None, None, None]);
+        assert_eq!(f3.get(IntT), &col![NA, NA, NA]);
         Ok(())
     }
 
     #[test]
     fn test_outer_join() -> Result<()> {
         let f1: Frame2<IntT, FloatT> = Frame::new()
-            .addcol(col![3, None, 2, None])?
-            .addcol(col![1., 2., None, 3.])?;
+            .addcol(col![3, NA, 2, NA])?
+            .addcol(col![1., 2., NA, 3.])?;
         let f2: Frame2<IntT, BoolT> = Frame::new()
-            .addcol(col![None, 3, 3, 2, 5])?
-            .addcol(col![true, None, false, true, None])?;
+            .addcol(col![NA, 3, 3, 2, 5])?
+            .addcol(col![true, NA, false, true, NA])?;
         let f3 = f1.outer_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![3, 3, None, 2, None, None, 5]);
+        assert_eq!(f3.get(IntT), &col![3, 3, NA, 2, NA, NA, 5]);
         Ok(())
     }
 
     #[test]
     fn test_iter_rows() {
         let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
-            .addcol(col![1, 2, None])
+            .addcol(col![1, 2, NA])
             .unwrap()
-            .addcol(col![None, 5., 4.])
+            .addcol(col![NA, 5., 4.])
             .unwrap()
-            .addcol(col![false, None, true])
+            .addcol(col![false, NA, true])
             .unwrap();
         let rows: Vec<(Option<&i64>, Option<&f64>, Option<&bool>)> = f.iter_rows().collect();
         assert_eq!(

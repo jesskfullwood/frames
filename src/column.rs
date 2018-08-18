@@ -690,7 +690,7 @@ macro_rules! col {
 
 #[allow(unused_macros)]
 macro_rules! wrap_val {
-    (None) => {
+    (NA) => {
         None
     };
     ($val:tt) => {
@@ -829,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_col_macro() {
-        let c = col![1, 2, 3, None, 4];
+        let c = col![1, 2, 3, NA, 4];
         assert_eq!(
             Column::from(vec![Some(1), Some(2), Some(3), None, Some(4)]),
             c,
@@ -838,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_unique_iter() {
-        let c = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
+        let c = col![1, 2, 3, NA, 4, 3, 4, 1, NA, 5, 2];
         let mut keys: Vec<_> = c.uniques().into_iter().cloned().collect();
         keys.sort();
         assert_eq!(keys, vec![1, 2, 3, 4, 5]);
@@ -854,11 +854,11 @@ mod tests {
 
     #[test]
     fn test_basic_ops() {
-        let c1 = col![1, 2, 3, None, 4, 3, 4, 1, None, 5, 2];
+        let c1 = col![1, 2, 3, NA, 4, 3, 4, 1, NA, 5, 2];
         let c2 = (c1.c() + 2) * 2;
         let c3 = (c2 / 2) - 2;
         assert_eq!(c1, c3);
         let c4 = c3.c() * c3 - c1;
-        assert_eq!(c4, col![0, 2, 6, None, 12, 6, 12, 0, None, 20, 2]);
+        assert_eq!(c4, col![0, 2, 6, NA, 12, 6, 12, 0, NA, 20, 2]);
     }
 }
