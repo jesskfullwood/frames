@@ -91,8 +91,17 @@ mod benchmarks {
     }
 
     #[bench]
-    fn bench_index_frame(b: &mut Bencher) {
+    fn bench_index_column_unique(b: &mut Bencher) {
         let mut c = Column::new((0..50_000).map(Some));
+        b.iter(|| {
+            c.build_index();
+            c.drop_index();
+        })
+    }
+
+    #[bench]
+    fn bench_index_column_10_repeats(b: &mut Bencher) {
+        let mut c = Column::new((0..50_000).map(|v| v % 5000).map(Some));
         b.iter(|| {
             c.build_index();
             c.drop_index();
