@@ -58,6 +58,19 @@ impl Default for Frame<HNil> {
     }
 }
 
+#[macro_export]
+macro_rules! frame {
+    ($($col:expr,)*) => {
+        {
+            let f = Frame::new();
+            $(
+                let f = f.addcol($col).unwrap();
+            )*;
+            f
+        }
+    }
+}
+
 impl<H: HList> Frame<H> {
     pub fn len(&self) -> usize {
         self.len
@@ -349,6 +362,7 @@ where
         }
     }
 
+    // TODO reshape
     // pub fn reshape<Shaped>(&self) -> Frame<Shaped>
     //     where Shaped:
     // {
@@ -392,6 +406,7 @@ where
         }
     }
 
+    // TODO
     // pub fn iter_elems<T>(&'a self) -> impl Iterator<Item = T>
     // where
     //     <H::ProductOptRef as Transformer>::Flattened: Generic,
@@ -462,32 +477,32 @@ where
 
 // We could get rid of the RowTuples stuff as frunk already does it. Iterating
 // as a tuple could just be a particular instance of iterator over the generic
-struct IterElems<'a, H: HList + 'a, T> {
-    frame: &'a Frame<H>,
-    index: usize,
-    ret: PhantomData<T>,
-}
+// struct IterElems<'a, H: HList + 'a, T> {
+//     frame: &'a Frame<H>,
+//     index: usize,
+//     ret: PhantomData<T>,
+// }
 
 // TODO iter elems as struct, somehow
-impl<'a, H, T> Iterator for IterElems<'a, H, T>
-where
-    H: HList + RowTuple<'a>,
-    H::ProductOptRef: Transformer,
-    <H::ProductOptRef as Transformer>::Flattened: Generic,
-    T: Generic<Repr = <<H::ProductOptRef as Transformer>::Flattened as Generic>::Repr>,
-{
-    type Item = T;
-    fn next(&mut self) -> Option<Self::Item> {
-        // match (*self.frame).get_row(self.index) {
-        //     Some(r) => {
-        //         self.index += 1;
-        //         Some(r)
-        //     }
-        //     None => None,
-        // }
-        unimplemented!()
-    }
-}
+// impl<'a, H, T> Iterator for IterElems<'a, H, T>
+// where
+//     H: HList + RowTuple<'a>,
+//     H::ProductOptRef: Transformer,
+//     <H::ProductOptRef as Transformer>::Flattened: Generic,
+//     T: Generic<Repr = <<H::ProductOptRef as Transformer>::Flattened as Generic>::Repr>,
+// {
+//     type Item = T;
+//     fn next(&mut self) -> Option<Self::Item> {
+//         // match (*self.frame).get_row(self.index) {
+//         //     Some(r) => {
+//         //         self.index += 1;
+//         //         Some(r)
+//         //     }
+//         //     None => None,
+//         // }
+//         unimplemented!()
+//     }
+// }
 
 // ### GroupBy ###
 
@@ -593,7 +608,6 @@ pub(crate) mod tests {
     use super::*;
     use frunk::indices::{Here, There};
 
-    // TODO convenient column literal macro
     #[test]
     fn test_basic_frame() -> Result<()> {
         let f: Data3 = Frame::with(col![10i64])
@@ -782,6 +796,13 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn test_frame_macro() {
+        let f: Frame2<IntT, FloatT> = frame![col![1, 2, 3, NA, 4], col![1., 2., 3., NA, 4.],];
+        assert_eq!(f.get(IntT), &col![1, 2, 3, NA, 4]);
+    }
+
+    // TODO
     // #[test]
     // fn test_ad_hoc_iter() {
     //     let f = quickframe();
