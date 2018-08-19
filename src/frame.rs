@@ -1,7 +1,5 @@
 use frunk::hlist::{HList, HNil, Plucker, Selector};
 
-use std::hash::Hash;
-
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
 use hlist::{
@@ -228,7 +226,7 @@ where
             + HListClonable,
         <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
-        LCol::Output: Eq + Clone + Hash,
+        LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx>,
     {
@@ -255,7 +253,7 @@ where
             + HListClonable,
         <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
-        LCol::Output: Eq + Clone + Hash,
+        LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx>,
     {
@@ -283,7 +281,7 @@ where
             + HListClonable,
         <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
-        LCol::Output: Eq + Clone + Hash,
+        LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
         H: Selector<NamedColumn<LCol>, LIx> + Replacer<LCol, LIx>,
     {
@@ -345,7 +343,7 @@ where
     pub fn groupby<Col, Index>(self, col: Col) -> GroupBy<H, HCons<Col, HNil>>
     where
         Col: ColId,
-        Col::Output: Eq + Clone + Hash,
+        Col::Output: Eq + Clone + Ord,
         H: Selector<NamedColumn<Col>, Index>,
     {
         let (grouping_index, grouped_col) = {

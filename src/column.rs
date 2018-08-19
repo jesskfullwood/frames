@@ -4,9 +4,8 @@ use num::{self, Bounded, Num};
 use smallvec;
 
 use std;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
@@ -15,8 +14,8 @@ use {id, Array, StdResult};
 
 // TODO benchmark smallvec vs Vec
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
-type IndexMap<T> = HashMap<T, IndexVec>;
-type IndexKeys<'a, T> = std::collections::hash_map::Keys<'a, T, IndexVec>;
+type IndexMap<T> = BTreeMap<T, IndexVec>;
+type IndexKeys<'a, T> = std::collections::btree_map::Keys<'a, T, IndexVec>;
 
 // ### NamedColumn def and impls ###
 
@@ -375,13 +374,13 @@ impl<T: Clone> Column<T> {
     }
 }
 
-impl<T: Hash + Clone + Eq> Column<T> {
+impl<T: Ord + Clone + Eq> Column<T> {
     // TODO this seems to be very slow??
     pub fn build_index(&self) {
         if self.is_indexed() {
             return;
         }
-        let mut index = IndexMap::with_capacity(self.len());
+        let mut index = IndexMap::new();
         for (ix, d) in self
             .iter()
             .enumerate()
@@ -390,7 +389,6 @@ impl<T: Hash + Clone + Eq> Column<T> {
             let entry = index.entry(d.clone()).or_insert_with(IndexVec::default);
             entry.push(ix)
         }
-        index.shrink_to_fit(); // we aren't touching this again
         *self.0.index.write().unwrap() = Some(index);
     }
 
@@ -749,7 +747,7 @@ pub struct Describe<N: Num> {
 // TODO should probably adapt this to just ho
 pub struct UniqueIter<'a, T: 'a>
 where
-    T: Eq + Hash,
+    T: Eq + Ord,
 {
     // Unfortunately this must be an `Option` because RwLockReadGuard
     // lacks a `map` method (unlike RefCell)
@@ -758,7 +756,7 @@ where
 
 impl<'a, 'b: 'a, T: 'a> IntoIterator for &'b UniqueIter<'a, T>
 where
-    T: Eq + Hash,
+    T: Eq + Ord,
 {
     type IntoIter = IndexKeys<'a, T>;
     type Item = &'a T;
