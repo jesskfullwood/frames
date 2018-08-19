@@ -3,6 +3,9 @@ pub use frunk::hlist::HCons as HConsFrunk;
 use frunk::hlist::{HList, HNil};
 pub use frunk::indices::{Here, There};
 
+// This module defines traits and methods on top of the `frunk` HList. For a good intro to HLists, see
+// https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
+
 pub type HCons<C, Tail> = HConsFrunk<NamedColumn<C>, Tail>;
 
 // ### HListExt ###

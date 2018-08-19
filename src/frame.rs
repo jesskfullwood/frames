@@ -8,9 +8,6 @@ use hlist::{
 use id;
 
 use Result;
-// The HList implementation is a modified version of the one found in the `frunk` crate.
-// See https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
-// for details. (In fact, that implementation is much more complete)
 
 // TODO tag everything with #[must_use]
 
@@ -214,7 +211,7 @@ where
     H: HListClonable,
 {
     pub fn inner_join<LCol, RCol, Oth, LIx, RIx>(
-        self,
+        &self,
         other: &Frame<Oth>,
         lcol: LCol,
         rcol: RCol,
@@ -736,6 +733,13 @@ pub(crate) mod tests {
         assert_eq!(f3.get(IntT), &[2, 2, 3]);
         assert_eq!(f3.get(BoolT), &col![true, false, NA]);
         Ok(())
+    }
+
+    #[test]
+    fn test_inner_join_with_duplicates() {
+        let f1 = Frame::with((0..50_000).map(|v| v / 2).map(Some));
+        let joined = f1.inner_join(&f1, IntT, IntT);
+        assert_eq!(joined.len(), 100_000);
     }
 
     #[test]

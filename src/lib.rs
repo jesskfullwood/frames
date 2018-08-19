@@ -2,6 +2,8 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
 #[cfg(all(feature = "unstable", test))]
+extern crate rand;
+#[cfg(all(feature = "unstable", test))]
 extern crate test;
 
 #[macro_use]
@@ -90,9 +92,11 @@ mod benchmarks {
         })
     }
 
+    const IXSIZE: i64 = 50_000;
+
     #[bench]
-    fn bench_index_column_unique(b: &mut Bencher) {
-        let mut c = Column::new((0..50_000).map(Some));
+    fn bench_index_column_sequence(b: &mut Bencher) {
+        let mut c = Column::new((0..IXSIZE).map(Some));
         b.iter(|| {
             c.build_index();
             c.drop_index();
@@ -100,11 +104,21 @@ mod benchmarks {
     }
 
     #[bench]
-    fn bench_index_column_10_repeats(b: &mut Bencher) {
-        let mut c = Column::new((0..50_000).map(|v| v % 5000).map(Some));
+    fn bench_index_column_random_with_10_dupes(b: &mut Bencher) {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let mut c = Column::new((0..IXSIZE).map(|_| rng.gen_range(0, IXSIZE / 10)).map(Some));
         b.iter(|| {
             c.build_index();
             c.drop_index();
         })
+    }
+
+    #[bench]
+    fn bench_inner_join(b: &mut Bencher) {
+        let f1 = Frame::with((0..IXSIZE).map(Some));
+        f1.get(IntT).build_index();
+        let f2 = f1.clone();
+        b.iter(|| f1.clone().inner_join(&f2, IntT, IntT))
     }
 }
