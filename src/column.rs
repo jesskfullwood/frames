@@ -10,7 +10,8 @@ use std::mem::ManuallyDrop;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
-use {id, Array, StdResult};
+use {id, StdResult};
+use array::Array;
 
 // TODO benchmark smallvec vs Vec
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
@@ -194,7 +195,7 @@ impl<T: Sized> Column<T> {
 
     pub fn new_notnull(data: impl IntoIterator<Item = T>) -> Column<T> {
         // ManuallyDrop is a zero-cost wrapper so this should be safe
-        let data = Array(data.into_iter().collect());
+        let data = Array::new(data.into_iter().collect());
         let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
         Column(Arc::new(ColumnInner {
             null_count: 0,
