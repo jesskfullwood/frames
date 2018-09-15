@@ -1,5 +1,5 @@
 [package]
-name = "frame-derive"
+name = "frames-derive"
 version = "0.1.0"
 authors = ["jesskfulwood <jesskfulwood@gmail.com>"]
 
@@ -16,5 +16,5 @@ frunk_derives = "0.2.0"
 frunk_core = "0.2.0"
 
 [lib]
-name = "frame_derive"
+name = "frames_derive"
 proc-macro = true

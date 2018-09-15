@@ -167,9 +167,10 @@ impl<T: Debug> Debug for Column<T> {
                 v.map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| String::from("NA"))
             }).collect();
+        let vals = vals.join(", ");
         write!(
             f,
-            "Column {{ indexed: {}, nulls: {}, vals: {:?} }}",
+            "Column {{ indexed: {}, nulls: {}, vals: {} }}",
             self.0.index.read().unwrap().is_some(),
             self.0.null_count,
             vals

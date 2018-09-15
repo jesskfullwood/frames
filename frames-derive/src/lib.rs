@@ -48,8 +48,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let colid_types2 = colid_types.clone();
     let colid_types3 = colid_types.clone();
     let codegen = quote! {
-        mod #modname {
+        pub mod #modname {
             #(
+                #[derive(Debug, Copy, Clone, PartialEq, Eq)]
                 pub struct #colid_types1;
                 impl ::frames::ColId for #colid_types2 {
                     const NAME: &'static str = #field_names;

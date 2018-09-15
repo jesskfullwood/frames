@@ -1,6 +1,7 @@
 use frunk::hlist::{HList, HNil, Plucker, Selector};
 
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
+use io;
 pub use frame_typedef::*;
 use hlist::{
     Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Transformer,
@@ -65,6 +66,15 @@ macro_rules! frame {
 }
 
 impl<H: HList> Frame<H> {
+    pub fn from_csv(path: impl AsRef<::std::path::Path>) -> Result<Frame<H>>
+    where
+        H: HList + io::Insertable,
+        H::Product: Transformer,
+    <H::Product as Transformer>::Flattened: ::serde::de::DeserializeOwned,
+    {
+        io::read_csv(path)
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }
