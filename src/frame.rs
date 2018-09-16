@@ -27,9 +27,7 @@ impl Frame<HNil> {
             len: 0,
         }
     }
-}
 
-impl Frame<HNil> {
     pub fn with<Col, Data>(data: Data) -> Frame<HCons<Col, HNil>>
     where
         Col: ColId,
@@ -56,7 +54,7 @@ impl Default for Frame<HNil> {
 macro_rules! frame {
     ($($col:expr),* $(,)*) => {
         {
-            let f = Frame::new();
+            let f = $crate::Frame::new();
             $(
                 let f = f.addcol($col).unwrap();
             )*;

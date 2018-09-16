@@ -779,7 +779,7 @@ macro_rules! define_col {
         // This type is just a marker and cannot be instantiated
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         pub struct $tyname;
-        impl ColId for $tyname {
+        impl $crate::column::ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;
         }
