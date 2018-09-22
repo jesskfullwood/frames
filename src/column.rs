@@ -29,7 +29,7 @@ impl<T: ColId> NamedColumn<T> {
     }
 
     pub(crate) fn with(from: impl IntoIterator<Item = T::Output>) -> NamedColumn<T> {
-        NamedColumn::new(Column::new_notnull(from))
+        NamedColumn::new(Column::new(from))
     }
 
     // Just a convenience method
@@ -82,23 +82,21 @@ where
 
 // ### Column def and impls ###
 
-pub struct Column<T>(Arc<ColumnInner<T>>);
-
-impl<T> Clone for Column<T> {
-    // We add a custom clone because derive adds a T: Clone bound
-    fn clone(&self) -> Self {
-        Column(self.0.clone())
-    }
-}
-
-struct ColumnInner<T> {
+pub struct Column<T> {
     data: Array<ManuallyDrop<T>>,
     null_count: usize,
     null_vec: BitVec,
     index: RwLock<Option<IndexMap<T>>>,
 }
 
-impl<T> Drop for ColumnInner<T> {
+impl<T> Clone for Column<T> {
+    // TODO clone  without touching unions
+    fn clone(&self) -> Self {
+        unimplemented!()
+    }
+}
+
+impl<T> Drop for Column<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
@@ -120,7 +118,7 @@ impl<T> Drop for ColumnInner<T> {
 
 impl<T, I: IntoIterator<Item = Option<T>>> From<I> for Column<T> {
     fn from(iter: I) -> Column<T> {
-        Column::new(iter)
+        Column::new_null(iter)
     }
 }
 
@@ -130,8 +128,8 @@ impl<T: PartialEq> PartialEq for Column<T> {
         if self.len() != other.len() {
             return false;
         }
-        self.iter()
-            .zip(other.iter())
+        self.iter_null()
+            .zip(other.iter_null())
             .all(|(left, right)| match (left, right) {
                 (None, None) => true,
                 (Some(_), None) => false,
@@ -148,10 +146,10 @@ where
 {
     fn eq(&self, other: &A) -> bool {
         let slice: &[T] = other.as_ref();
-        if self.count_null() > 0 || self.len() != slice.len() {
+        if self.count_nulls() > 0 || self.len() != slice.len() {
             return false;
         }
-        self.iter()
+        self.iter_null()
             .filter_map(id)
             .zip(slice.iter())
             .all(|(l, r)| l == r)
@@ -162,7 +160,7 @@ impl<T: Debug> Debug for Column<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
         // This is very inefficient but we don't care because it's only for debugging
         let vals: Vec<String> = self
-            .iter()
+            .iter_null()
             .map(|v| {
                 v.map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| String::from("NA"))
@@ -171,103 +169,119 @@ impl<T: Debug> Debug for Column<T> {
         write!(
             f,
             "Column {{ indexed: {}, nulls: {}, vals: {} }}",
-            self.0.index.read().unwrap().is_some(),
-            self.0.null_count,
+            self.index.read().unwrap().is_some(),
+            self.null_count,
             vals
         )
     }
 }
 
 impl<T: Sized> Column<T> {
-    pub fn new(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
+    pub fn new(data: impl IntoIterator<Item = T>) -> Column<T> {
+        // ManuallyDrop is a zero-cost wrapper so this should be safe
+        let data = Array::new(data.into_iter().collect());
+        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
+        Column {
+            null_count: 0,
+            null_vec: BitVec::from_elem(data.len(), true),
+            data,
+            index: RwLock::new(None),
+        }
+    }
+
+    pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
         let mut null_vec = BitVec::new();
         let mut null_count = 0;
         let mut arr = Vec::new();
         for v in data {
             push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
         }
-        Column(Arc::new(ColumnInner {
+        Column {
             null_count,
             null_vec,
             data: Array::new(arr),
             index: RwLock::new(None),
-        }))
-    }
-
-    pub fn new_notnull(data: impl IntoIterator<Item = T>) -> Column<T> {
-        // ManuallyDrop is a zero-cost wrapper so this should be safe
-        let data = Array::new(data.into_iter().collect());
-        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
-        Column(Arc::new(ColumnInner {
-            null_count: 0,
-            null_vec: BitVec::from_elem(data.len(), true),
-            data,
-            index: RwLock::new(None),
-        }))
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.data.len()
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    // TODO um why?
     /// Shorthand for clone
     pub fn c(&self) -> Self {
         (*self).clone()
     }
 
-    pub fn count_null(&self) -> usize {
-        self.0.null_count
+    /// Count number of null values. This is an O(1) operation
+    pub fn count_nulls(&self) -> usize {
+        self.null_count
     }
 
-    pub fn count_notnull(&self) -> usize {
-        self.len() - self.0.null_count
+    /// Count number of non-null values. This is an O(1) operation
+    pub fn count(&self) -> usize {
+        self.len() - self.null_count
     }
 
     pub fn is_indexed(&self) -> bool {
-        self.0.index.read().unwrap().is_some()
+        self.index.read().unwrap().is_some()
     }
 
     /// Returns wrapped value, or None if null,
     /// wrapped in bounds-check
     pub fn get(&self, ix: usize) -> Option<Option<&T>> {
-        match self.0.null_vec.get(ix) {
+        match self.null_vec.get(ix) {
             None => None, // out of bounds
-            Some(true) => Some(Some(&self.0.data[ix])),
+            Some(true) => Some(Some(&self.data[ix])),
             Some(false) => Some(None),
         }
     }
 
-    /// Iterate over the values of the column
-    pub fn iter(&self) -> impl Iterator<Item = Option<&T>> + '_ {
-        self.0
+    /// Iterate over the non-null values of the column
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self
             .null_vec
             .iter()
-            .zip(self.0.data.iter())
-            .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
-    }
-
-    /// Iterate over the none-null values of the column
-    pub fn iter_notnull(&self) -> impl Iterator<Item = &T> + '_ {
-        self.0
-            .null_vec
-            .iter()
-            .zip(self.0.data.iter())
+            .zip(self.data.iter())
             .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
     }
 
-    /// Construct a new column by applying `func` to contents
-    pub fn map<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Column<R> {
-        Column::new(self.iter().map(|v| func(v)))
+    /// Mutably iterate over the non-null values of the column
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
+        self
+            .null_vec
+            .iter()
+            .zip(self.data.iter_mut())
+            .filter_map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
     }
 
-    /// Construct a new column by applying `func` to non-null contents
-    /// (effectively filtering out nulls)
-    pub fn map_notnull<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
-        Column::new(self.iter().map(|v| {
+    /// Iterate over the values of the column, including nulls
+    pub fn iter_null(&self) -> impl Iterator<Item = Option<&T>> + '_ {
+        self
+            .null_vec
+            .iter()
+            .zip(self.data.iter())
+            .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
+    }
+
+    /// Mutably iterate over the values of the column, including nulls
+    pub fn iter_mut_null(&mut self) -> impl Iterator<Item = Option<&mut T>> + '_ {
+        self
+            .null_vec
+            .iter()
+            .zip(self.data.iter_mut())
+            .map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
+    }
+
+    /// Convenience method to construct a new Column from application of `func`
+    /// - nulls are left unchanged
+    pub fn map<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
+        Column::new_null(self.iter_null().map(|v| {
             match v {
                 Some(v) => Some(func(v)), // v.map(test) doesn't work for some reason
                 None => None,
@@ -275,8 +289,19 @@ impl<T: Sized> Column<T> {
         }))
     }
 
+    /// Convenience method to construct a new Column from application of `func`
+    pub fn map_null<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Column<R> {
+        Column::new_null(self.iter_null().map(|v| func(v)))
+    }
+
+    /// Apply `func` to contents in-place.
+    /// This is the only way to turn nulls into values (and vice-versa) in-place
+    pub fn map_in_place<R>(&mut self, func: impl Fn(Option<T>) -> Option<T>) {
+        unimplemented!()
+    }
+
     pub fn mask(&self, test: impl Fn(&T) -> bool) -> Mask {
-        let mask = self.map_notnull(test);
+        let mask = self.map(test);
         mask.into()
     }
 
@@ -284,8 +309,8 @@ impl<T: Sized> Column<T> {
         &self,
         iter: impl Iterator<Item = usize>,
     ) -> impl Iterator<Item = Option<&T>> {
-        let data = &self.0.data;
-        let nulls = &self.0.null_vec;
+        let data = &self.data;
+        let nulls = &self.null_vec;
         iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
     }
 }
@@ -314,33 +339,33 @@ fn push_maybe_null<T>(
 }
 
 impl<T: Clone> Column<T> {
-    pub fn filter(&self, func: impl Fn(Option<&T>) -> bool) -> Self {
-        Column::new(
-            self.iter()
-                .filter_map(|v| if func(v) { Some(v.cloned()) } else { None }),
-        )
-    }
-
-    pub fn filter_notnull(&self, func: impl Fn(&T) -> bool) -> Self {
-        Column::new_notnull(self.iter_notnull().filter_map(|v| {
-            if func(v) {
-                Some(v.clone())
-            } else {
-                None
+    /// Filter values with supplied function, creating a new Column.
+    /// Nulls are left unchanged
+    pub fn filter(&self, func: impl Fn(&T) -> bool) -> Self {
+        Column::new_null(self.iter_null().filter_map(|v| {
+            match v {
+                Some(v) => {
+                    if func(v) {
+                        Some(Some(v.clone()))
+                    } else {
+                        None
+                    }
+                }
+                None => Some(None)
             }
         }))
     }
 
     /// Create new Column taking values from provided slice of indices
     pub(crate) fn copy_locs(&self, locs: &[usize]) -> Column<T> {
-        Column::new(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
+        Column::new_null(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
     }
 
     /// Create new NamedColumn taking values from provided slice of indices,
     /// possibly interjecting nulls
     /// This function is mainly useful for joins
     pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Column<T> {
-        Column::new(locs.iter().map(|&ix| {
+        Column::new_null(locs.iter().map(|&ix| {
             if let Some(ix) = ix {
                 self.get(ix).unwrap().cloned()
             } else {
@@ -360,13 +385,13 @@ impl<T: Clone> Column<T> {
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().unwrap().clone()
             }).collect();
-        Column::new_notnull(data)
+        Column::new(data)
     }
 
     // Filter collection from mask. Nulls are considered equivalent to false
     pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
-        Column::new(self.iter().zip(mask.iter()).filter_map(|(v, b)| {
+        Column::new_null(self.iter_null().zip(mask.iter()).filter_map(|(v, b)| {
             if b.unwrap_or(false) {
                 Some(v.cloned())
             } else {
@@ -384,36 +409,36 @@ impl<T: Ord + Clone + Eq> Column<T> {
         }
         let mut index = IndexMap::new();
         for (ix, d) in self
-            .iter()
+            .iter_null()
             .enumerate()
             .filter_map(|(ix, d)| d.map(|d| (ix, d)))
         {
             let entry = index.entry(d.clone()).or_insert_with(IndexVec::default);
             entry.push(ix)
         }
-        *self.0.index.write().unwrap() = Some(index);
+        *self.index.write().unwrap() = Some(index);
     }
 
     #[allow(dead_code)]
     pub(crate) fn drop_index(&mut self) {
         // This is just for use with the benchmarks
-        *self.0.index.write().unwrap() = None
+        *self.index.write().unwrap() = None
     }
 
     pub fn uniques(&self) -> UniqueIter<T> {
         self.build_index();
         UniqueIter {
-            guard: self.0.index.read().unwrap(),
+            guard: self.index.read().unwrap(),
         }
     }
 
     pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
         other.build_index();
-        let rborrow = other.0.index.read().unwrap();
+        let rborrow = other.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
-        self.iter()
+        self.iter_null()
             .enumerate()
             .filter_map(|(ix, lval)| lval.map(|d| (ix, d)))
             .for_each(|(lix, lval)| {
@@ -431,12 +456,12 @@ impl<T: Ord + Clone + Eq> Column<T> {
 
     pub(crate) fn left_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<Option<usize>>) {
         other.build_index();
-        let rborrow = other.0.index.read().unwrap();
+        let rborrow = other.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
 
-        for (lix, lvalo) in self.iter().enumerate() {
+        for (lix, lvalo) in self.iter_null().enumerate() {
             if let Some(lval) = lvalo {
                 if let Some(rixs) = rindex.get(lval) {
                     // we have a join
@@ -465,14 +490,14 @@ impl<T: Ord + Clone + Eq> Column<T> {
     ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
         self.build_index();
         other.build_index();
-        let lborrow = self.0.index.read().unwrap();
+        let lborrow = self.index.read().unwrap();
         let lindex = lborrow.as_ref().unwrap();
-        let rborrow = other.0.index.read().unwrap();
+        let rborrow = other.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
         let mut leftout = Vec::with_capacity(self.len()); // guess a preallocation
         let mut rightout = Vec::with_capacity(self.len());
 
-        for (lix, lvalo) in self.iter().enumerate() {
+        for (lix, lvalo) in self.iter_null().enumerate() {
             match lvalo {
                 None => {
                     // Left value is null, so no joins
@@ -500,7 +525,7 @@ impl<T: Ord + Clone + Eq> Column<T> {
                 }
             }
         }
-        for (rix, rvalo) in other.iter().enumerate() {
+        for (rix, rvalo) in other.iter_null().enumerate() {
             match rvalo {
                 None => {
                     // Right value is null, add to output
@@ -530,7 +555,7 @@ impl<T: Ord + Clone + Eq> Column<T> {
     // TODO this seems very inefficient, what is it for?
     pub(crate) fn index_values(&self) -> Vec<IndexVec> {
         self.build_index();
-        let borrow = self.0.index.read().unwrap();
+        let borrow = self.index.read().unwrap();
         let colix = borrow.as_ref().unwrap();
         colix.values().cloned().collect()
     }
@@ -547,7 +572,7 @@ macro_rules! impl_primitive_op {
             type Output = Column<T::Output>;
             fn $func(self, rhs: T) -> Self::Output {
                 //TODO map in-place?
-                self.map_notnull(|v| T::$func(v.clone(), rhs.clone()))
+                self.map(|v| T::$func(v.clone(), rhs.clone()))
             }
         }
     };
@@ -570,13 +595,13 @@ macro_rules! impl_columnwise_op {
                     )
                 }
                 let iter = self
-                    .iter()
-                    .zip(rhs.iter())
+                    .iter_null()
+                    .zip(rhs.iter_null())
                     .map(|(ov1, ov2)| match (ov1, ov2) {
                         (Some(v1), Some(v2)) => Some(T::$func(v1.clone(), v2.clone())),
                         _ => None,
                     });
-                Column::new(iter)
+                Column::new_null(iter)
             }
         }
     };
@@ -600,7 +625,7 @@ where
 {
     type Output = Column<T::Output>;
     fn neg(self) -> Self::Output {
-        self.map_notnull(|v| T::neg(v.clone()))
+        self.map(|v| T::neg(v.clone()))
     }
 }
 
@@ -611,9 +636,7 @@ impl<T: Num + Copy> Column<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
     pub fn sum(&self) -> T {
-        self.iter()
-            .filter_map(id)
-            .fold(num::zero(), |acc, &v| acc + v)
+        self.iter().fold(num::zero(), |acc, &v| acc + v)
     }
 }
 
@@ -628,13 +651,13 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     pub fn variance(&self) -> f64 {
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
-        self.iter().filter_map(id).for_each(|n| {
+        self.iter().for_each(|n| {
             let n: f64 = n.as_();
             sigmafxsqr += n * n;
             sigmafx += n;
         });
-        let mean = sigmafx / self.count_notnull() as f64;
-        sigmafxsqr / self.count_notnull() as f64 - mean * mean
+        let mean = sigmafx / self.count() as f64;
+        sigmafxsqr / self.count() as f64 - mean * mean
     }
 
     /// Calculate the standard deviation of the collection. Ignores null values
@@ -651,9 +674,9 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
         let mut max = T::min_value();
         let mut sigmafxsqr: f64 = 0.;
         let mut sigmafx: f64 = 0.;
-        let len = self.count_notnull();
+        let len = self.count();
 
-        self.iter().filter_map(id).for_each(|&n| {
+        self.iter().for_each(|&n| {
             if n < min {
                 min = n;
             }
@@ -668,7 +691,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
         let variance = sigmafxsqr / len as f64 - mean * mean;
         Describe {
             len: self.len(),
-            null_count: self.count_null(),
+            null_count: self.count_nulls(),
             min,
             max,
             mean,
@@ -714,7 +737,7 @@ impl Mask {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Option<bool>> + '_ {
-        self.mask.iter().map(|b| b.cloned())
+        self.mask.iter_null().map(|b| b.cloned())
     }
 
     pub fn true_count(&self) -> usize {
@@ -725,7 +748,7 @@ impl Mask {
 impl From<Column<bool>> for Mask {
     fn from(mask: Column<bool>) -> Self {
         let true_count = mask
-            .iter()
+            .iter_null()
             .fold(0, |acc, v| if *v.unwrap_or(&false) { acc + 1 } else { acc });
         Mask { mask, true_count }
     }
@@ -794,15 +817,15 @@ mod tests {
     fn test_build_with_nulls() {
         let c = Column::from((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
         assert_eq!(c.len(), 5);
-        assert_eq!(c.count_null(), 2);
-        let vals: Vec<Option<u32>> = c.iter().map(|v| v.cloned()).collect();
+        assert_eq!(c.count_nulls(), 2);
+        let vals: Vec<Option<u32>> = c.iter_null().map(|v| v.cloned()).collect();
         assert_eq!(vals, vec![Some(0), None, Some(2), None, Some(4)]);
 
-        let c2 = c.map_notnull(|v| *v);
+        let c2 = c.map(|v| *v);
         assert_eq!(c, c2);
 
-        let c3 = c.map(|v| v.map(|u| u * u));
-        let vals: Vec<Option<u32>> = c3.iter().map(|v| v.cloned()).collect();
+        let c3 = c.map_null(|v| v.map(|u| u * u));
+        let vals: Vec<Option<u32>> = c3.iter_null().map(|v| v.cloned()).collect();
         assert_eq!(vals, vec![Some(0), None, Some(4), None, Some(16)]);
     }
 
@@ -815,10 +838,10 @@ mod tests {
             None,
             None,
         ];
-        let c = Column::new(words.into_iter());
+        let c = Column::new_null(words.into_iter());
         assert_eq!(c.len(), 5);
-        assert_eq!(c.count_null(), 3);
-        assert_eq!(c.count_notnull(), 2);
+        assert_eq!(c.count_nulls(), 3);
+        assert_eq!(c.count(), 2);
         drop(c)
     }
 
@@ -827,7 +850,7 @@ mod tests {
         use std::rc::Rc;
         use std::sync::Arc;
         // contains no nulls
-        let c1 = Column::new_notnull(vec![Arc::new(10), Arc::new(20)]);
+        let c1 = Column::new(vec![Arc::new(10), Arc::new(20)]);
         drop(c1);
         // contains nulls -> segfaults!
         let c2 = Column::from(vec![Some(Rc::new(1)), None]);

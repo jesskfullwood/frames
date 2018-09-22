@@ -192,7 +192,7 @@ where
         F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
         HCons {
-            head: NamedColumn::new(self.head.map(func)),
+            head: NamedColumn::new(self.head.map_null(func)),
             tail: self.tail,
         }
     }
@@ -202,7 +202,7 @@ where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
     {
         HCons {
-            head: NamedColumn::new(self.head.map_notnull(func)),
+            head: NamedColumn::new(self.head.map(func)),
             tail: self.tail,
         }
     }

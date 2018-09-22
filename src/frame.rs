@@ -298,10 +298,10 @@ where
         let (rjoined, rightframe) = rightframe.extract(rcol);
         let joined = {
             let ljoined = leftframe.get(lcol);
-            NamedColumn::from(Column::new(
+            NamedColumn::from(Column::new_null(
                 ljoined
-                    .iter()
-                    .zip(rjoined.iter())
+                    .iter_null()
+                    .zip(rjoined.iter_null())
                     .map(|(left, right)| left.or(right).cloned()),
             ))
         };
