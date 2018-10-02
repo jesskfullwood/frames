@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use column::ColId;
-use frame::{Frame, RowTuple};
-use hlist::{HCons as HConsFrame, HListExt, Transformer};
+use frame::{Frame};
+use hlist::{HCons as HConsFrame, HListExt, Transformer, RowHList};
 use Result;
 
 // ### Reader implementation ###
@@ -166,9 +166,9 @@ where
 {
     pub fn write_csv<'a>(&'a self, path: impl AsRef<Path>) -> Result<()>
     where
-        H: RowTuple<'a>,
-        <H as RowTuple<'a>>::ProductOptRef: Transformer,
-        <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
+        H: RowHList<'a>,
+        <H as RowHList<'a>>::ProductOptRef: Transformer,
+        <<H as RowHList<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
     {
         let w = File::create(path)?;
         let w = BufWriter::new(w);
@@ -177,9 +177,9 @@ where
 
     pub fn write_writer<'a>(&'a self, w: impl Write) -> Result<()>
     where
-        H: RowTuple<'a>,
-        <H as RowTuple<'a>>::ProductOptRef: Transformer,
-        <<H as RowTuple<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
+        H: RowHList<'a>,
+        <H as RowHList<'a>>::ProductOptRef: Transformer,
+        <<H as RowHList<'a>>::ProductOptRef as Transformer>::Flattened: Serialize,
     {
         let names = self.colnames();
         let mut w = csv::Writer::from_writer(w);

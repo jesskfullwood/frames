@@ -1,4 +1,7 @@
 use column::{ColId, Mask, NamedColumn};
+
+use std::fmt::Display;
+
 pub use frunk::hlist::HCons as HConsFrunk;
 use frunk::hlist::{HList, HNil};
 pub use frunk::indices::{Here, There};
@@ -236,6 +239,60 @@ where
             head: self.head,
             tail: self.tail.map_replace_notnull(func),
         }
+    }
+}
+
+// ### Stringify ###
+
+pub trait Stringify {
+    fn stringify(&self) -> Vec<String>;
+}
+
+impl<Head, Tail> Stringify for HConsFrunk<Head, Tail>
+where
+    Head: Display,
+    Tail: Stringify,
+{
+    fn stringify(&self) -> Vec<String> {
+        let mut out = self.tail.stringify();
+        out.push(self.head.to_string());
+        out
+    }
+}
+
+impl Stringify for HNil {
+    fn stringify(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+// ### RowHList ###
+
+pub trait RowHList<'a> {
+    type ProductOptRef;
+    fn get_row(&'a self, index: usize) -> Self::ProductOptRef;
+}
+
+impl<'a, Head, Tail> RowHList<'a> for HCons<Head, Tail>
+where
+    Head: ColId,
+    Head::Output: 'a,
+    Tail: RowHList<'a>,
+{
+    type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
+    fn get_row(&'a self, index: usize) -> Self::ProductOptRef {
+        // NOTE: assumes the provided index is valid. This should be checked by the parent frame
+        HConsFrunk {
+            head: self.head.get(index).unwrap(),
+            tail: self.tail.get_row(index),
+        }
+    }
+}
+
+impl<'a> RowHList<'a> for HNil {
+    type ProductOptRef = HNil;
+    fn get_row(&'a self, _index: usize) -> Self::ProductOptRef {
+        HNil
     }
 }
 
