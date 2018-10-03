@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use column::ColId;
-use frame::{Frame};
-use hlist::{HCons as HConsFrame, HListExt, Transformer, RowHList};
+use frame::Frame;
+use hlist::{HCons as HConsFrame, HListExt, RowHList, Transformer};
 use Result;
 
 // ### Reader implementation ###

@@ -60,7 +60,6 @@ mod benchmarks {
         })
     }
 
-
     #[bench]
     fn bench_index_column_sequence(b: &mut Bencher) {
         let mut c = Column::new((0..SIZE).map(Some));

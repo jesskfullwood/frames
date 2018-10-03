@@ -10,8 +10,8 @@ use std::mem::ManuallyDrop;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
-use {id, StdResult};
 use array::Array;
+use {id, StdResult};
 
 // TODO benchmark smallvec vs Vec
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
@@ -244,8 +244,7 @@ impl<T: Sized> Column<T> {
 
     /// Iterate over the non-null values of the column
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self
-            .null_vec
+        self.null_vec
             .iter()
             .zip(self.data.iter())
             .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
@@ -253,8 +252,7 @@ impl<T: Sized> Column<T> {
 
     /// Mutably iterate over the non-null values of the column
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
-        self
-            .null_vec
+        self.null_vec
             .iter()
             .zip(self.data.iter_mut())
             .filter_map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
@@ -262,8 +260,7 @@ impl<T: Sized> Column<T> {
 
     /// Iterate over the values of the column, including nulls
     pub fn iter_null(&self) -> impl Iterator<Item = Option<&T>> + '_ {
-        self
-            .null_vec
+        self.null_vec
             .iter()
             .zip(self.data.iter())
             .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
@@ -271,8 +268,7 @@ impl<T: Sized> Column<T> {
 
     /// Mutably iterate over the values of the column, including nulls
     pub fn iter_mut_null(&mut self) -> impl Iterator<Item = Option<&mut T>> + '_ {
-        self
-            .null_vec
+        self.null_vec
             .iter()
             .zip(self.data.iter_mut())
             .map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
@@ -342,17 +338,15 @@ impl<T: Clone> Column<T> {
     /// Filter values with supplied function, creating a new Column.
     /// Nulls are left unchanged
     pub fn filter(&self, func: impl Fn(&T) -> bool) -> Self {
-        Column::new_null(self.iter_null().filter_map(|v| {
-            match v {
-                Some(v) => {
-                    if func(v) {
-                        Some(Some(v.clone()))
-                    } else {
-                        None
-                    }
+        Column::new_null(self.iter_null().filter_map(|v| match v {
+            Some(v) => {
+                if func(v) {
+                    Some(Some(v.clone()))
+                } else {
+                    None
                 }
-                None => Some(None)
             }
+            None => Some(None),
         }))
     }
 
@@ -594,13 +588,13 @@ macro_rules! impl_columnwise_op {
                         rhs.len()
                     )
                 }
-                let iter = self
-                    .iter_null()
-                    .zip(rhs.iter_null())
-                    .map(|(ov1, ov2)| match (ov1, ov2) {
-                        (Some(v1), Some(v2)) => Some(T::$func(v1.clone(), v2.clone())),
-                        _ => None,
-                    });
+                let iter =
+                    self.iter_null()
+                        .zip(rhs.iter_null())
+                        .map(|(ov1, ov2)| match (ov1, ov2) {
+                            (Some(v1), Some(v2)) => Some(T::$func(v1.clone(), v2.clone())),
+                            _ => None,
+                        });
                 Column::new_null(iter)
             }
         }

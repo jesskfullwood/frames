@@ -1,12 +1,13 @@
 use frunk::hlist::{HList, HNil, Plucker, Selector};
 
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
-use io;
 pub use frame_typedef::*;
 use hlist::{
-    Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, Stringify, Transformer, RowHList
+    Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, RowHList,
+    Stringify, Transformer,
 };
 use id;
+use io;
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -67,16 +68,19 @@ macro_rules! frame {
 }
 
 impl<'a, H> fmt::Display for Frame<H>
-where H: HList + RowHList<'a>,
-    <H as RowHList<'a>>::ProductOptRef: Stringify
+where
+    H: HList + RowHList<'a>,
+    <H as RowHList<'a>>::ProductOptRef: Stringify,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for row in self.iter_rows_hlist() {
-            let strs = row.stringify();
-            for s in strs {
-                write!(f, "{}", s)?
-            }
-        }
+        // TODO Just can't get the lifetimes to work out
+        unimplemented!();
+        // for row in self.iter_rows_hlist() {
+        //     let strs = row.stringify();
+        //     for s in strs {
+        //         write!(f, "{}", s)?
+        //     }
+        // }
         Ok(())
     }
 }
@@ -86,7 +90,7 @@ impl<H: HList> Frame<H> {
     where
         H: HList + io::Insertable,
         H::Product: Transformer,
-    <H::Product as Transformer>::Flattened: ::serde::de::DeserializeOwned,
+        <H::Product as Transformer>::Flattened: ::serde::de::DeserializeOwned,
     {
         io::read_csv(path)
     }
@@ -406,12 +410,9 @@ impl<Col: ColId, Tail: HList> Frame<HCons<Col, Tail>> {
 
 impl<'a, H> Frame<H>
 where
-    H: HList + RowHList<'a>
+    H: HList + RowHList<'a>,
 {
-    pub fn get_row_hlist(
-        &'a self,
-        index: usize,
-    ) -> Option<<H as RowHList>::ProductOptRef> {
+    pub fn get_row_hlist(&'a self, index: usize) -> Option<<H as RowHList>::ProductOptRef> {
         // NOTE: This check is done here so it doesn't have to be done by the inner HList
         if index >= self.len() {
             return None;
@@ -419,13 +420,11 @@ where
         Some(self.hlist.get_row(index))
     }
 
-    fn iter_rows_hlist(
-        &'a self,
-    ) -> impl Iterator<Item = <H as RowHList>::ProductOptRef> {
+    fn iter_rows_hlist(&'a self) -> impl Iterator<Item = <H as RowHList>::ProductOptRef> {
         IterRows {
             frame: &self,
             index: 0,
-            tag: PhantomData
+            tag: PhantomData,
         }
     }
 }
@@ -449,7 +448,7 @@ where
         IterRows {
             frame: &self,
             index: 0,
-            tag
+            tag,
         }
     }
 
@@ -470,7 +469,7 @@ where
 struct IterRows<'a, H: HList + 'a, T> {
     frame: &'a Frame<H>,
     index: usize,
-    tag: PhantomData<T>
+    tag: PhantomData<T>,
 }
 
 enum IterHList {}
@@ -631,12 +630,8 @@ pub(crate) mod test_fixtures {
         Frame::with(col![1, 2, NA, 3, 4])
             .addcol(col![5., NA, 3., 2., 1.])
             .unwrap()
-            .addcol(
-                r#"this,'" is the words here"#
-                    .split(' ')
-                    .map(String::from)
-                    .map(Some),
-            ).unwrap()
+            .addcol(r#"this,'" is the words here"#.split(' ').map(String::from).map(Some))
+            .unwrap()
     }
 }
 
@@ -858,6 +853,35 @@ pub(crate) mod tests {
             c.build_index();
         });
         f.inner_join(&f3, IntT, IntT);
+    }
+
+    #[test]
+    fn test_get_row() {
+        use frunk;
+        let f: Frame2<IntT, FloatT> = frame![col![1, 2], col![2., 3.]];
+        {
+            let row = f.get_row_hlist(0).unwrap();
+            assert_eq!(
+                row,
+                frunk::HCons {
+                    head: Some(&1),
+                    tail: frunk::HCons {
+                        head: Some(&2.),
+                        tail: frunk::HNil
+                    }
+                }
+            );
+        }
+        {
+            let row = f.get_row(0).unwrap();
+            assert_eq!(row, (Some(&1), Some(&2.)));
+        }
+    }
+
+    #[test]
+    fn test_display() {
+        let f: Frame1<IntT> = frame![col![1, 2, 3, NA, 4]];
+        format!("{}", f);
     }
 
     // TODO

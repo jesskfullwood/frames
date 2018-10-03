@@ -1,6 +1,6 @@
 use column::{ColId, Mask, NamedColumn};
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 pub use frunk::hlist::HCons as HConsFrunk;
 use frunk::hlist::{HList, HNil};
@@ -250,12 +250,12 @@ pub trait Stringify {
 
 impl<Head, Tail> Stringify for HConsFrunk<Head, Tail>
 where
-    Head: Display,
+    Head: Debug,
     Tail: Stringify,
 {
     fn stringify(&self) -> Vec<String> {
         let mut out = self.tail.stringify();
-        out.push(self.head.to_string());
+        out.push(format!("{:?}", self.head));
         out
     }
 }
@@ -291,7 +291,7 @@ where
 
 impl<'a> RowHList<'a> for HNil {
     type ProductOptRef = HNil;
-    fn get_row(&'a self, _index: usize) -> Self::ProductOptRef {
+    fn get_row(&self, _index: usize) -> Self::ProductOptRef {
         HNil
     }
 }
@@ -302,4 +302,22 @@ pub trait Transformer {
     type Flattened;
     fn nest(flat: Self::Flattened) -> Self;
     fn flatten(self) -> Self::Flattened;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stringify() {
+        let cons = HConsFrunk {
+            head: 10,
+            tail: HConsFrunk {
+                head: "hello",
+                tail: HNil,
+            },
+        };
+        let words = cons.stringify();
+        assert_eq!(words, vec!["10".to_string(), "hello".to_string()]);
+    }
 }
