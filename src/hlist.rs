@@ -174,11 +174,11 @@ where
 
 pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
     type Mapped: HList;
-    fn map_replace<F>(self, func: F) -> Self::Mapped
+    fn map_replace_all<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(Option<&Target::Output>) -> Option<<NewCol as ColId>::Output>;
 
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
+    fn map_replace<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
 }
@@ -190,7 +190,7 @@ where
     Tail: HList,
 {
     type Mapped = HCons<NewCol, Tail>;
-    fn map_replace<F>(self, func: F) -> Self::Mapped
+    fn map_replace_all<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
@@ -200,7 +200,7 @@ where
         }
     }
 
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
+    fn map_replace<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
     {
@@ -221,23 +221,23 @@ where
 {
     type Mapped = HCons<Col, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
 
-    fn map_replace<F>(self, func: F) -> Self::Mapped
+    fn map_replace_all<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(Option<&FromTail::Output>) -> Option<<NewCol as ColId>::Output>,
     {
         HCons {
             head: self.head,
-            tail: self.tail.map_replace(func),
+            tail: self.tail.map_replace_all(func),
         }
     }
 
-    fn map_replace_notnull<F>(self, func: F) -> Self::Mapped
+    fn map_replace<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(&FromTail::Output) -> <NewCol as ColId>::Output,
     {
         HCons {
             head: self.head,
-            tail: self.tail.map_replace_notnull(func),
+            tail: self.tail.map_replace(func),
         }
     }
 }
@@ -279,6 +279,8 @@ where
     Head::Output: 'a,
     Tail: RowHList<'a>,
 {
+    // TODO this could be tidied up a lot with GATs:
+    // https://github.com/rust-lang/rust/issues/44265
     type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
     fn get_row(&'a self, index: usize) -> Self::ProductOptRef {
         // NOTE: assumes the provided index is valid. This should be checked by the parent frame

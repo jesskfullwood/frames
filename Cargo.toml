@@ -6,12 +6,12 @@ authors = ["jesskfulwood <jesskfulwood@gmail.com>"]
 [dependencies]
 failure = "0.1.2"
 num = "0.2.0"
-new-ordered-float = "1.0.1"
-csv = "1.0.0"
+new-ordered-float = "1.0.2"
+csv = "1.0.2"
 bit-vec = "0.5.0"
-serde = "1.0.71"
-smallvec = "0.6.4"
-frunk = "0.2.0"
+serde = "1.0.79"
+smallvec = "0.6.5"
+frunk = "0.2.1"
 
 [dev-dependencies]
 tempdir = "0.3.7"
