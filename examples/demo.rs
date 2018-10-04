@@ -21,14 +21,14 @@ fn main() -> Result<()> {
 
     let t = time::Instant::now();
     let df1 = Frame::with::<Int, _>((0..SIZE).map(Some))
-        .addcol::<Float, _>((0..SIZE).map(|v| v as f64 + 0.5).map(Some))?
-        .addcol::<Bool, _>((0..SIZE).map(|v| if v % 2 == 0 { Some(v % 4 == 0) } else { None }))?
-        .addcol::<Strings, _>((0..SIZE).map(|v| format!("number {}", v)).map(Some))?;
+        .add::<Float, _>((0..SIZE).map(|v| v as f64 + 0.5).map(Some))?
+        .add::<Bool, _>((0..SIZE).map(|v| if v % 2 == 0 { Some(v % 4 == 0) } else { None }))?
+        .add::<Strings, _>((0..SIZE).map(|v| format!("number {}", v)).map(Some))?;
     let t = elapsed_secs(t);
     println!(
         "Created frame with {} columns and {} rows in {}s",
-        df1.num_cols(),
-        df1.len(),
+        df1.ncols(),
+        df1.nrows(),
         t
     );
 

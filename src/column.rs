@@ -24,8 +24,8 @@ type IndexKeys<'a, T> = std::collections::btree_map::Keys<'a, T, IndexVec>;
 pub struct NamedColumn<T: ColId>(Column<T::Output>);
 
 impl<T: ColId> NamedColumn<T> {
-    pub(crate) fn new(anon: Column<T::Output>) -> Self {
-        NamedColumn(anon)
+    pub(crate) fn new(unnamed: Column<T::Output>) -> Self {
+        NamedColumn(unnamed)
     }
 
     pub(crate) fn with(from: impl IntoIterator<Item = T::Output>) -> NamedColumn<T> {
