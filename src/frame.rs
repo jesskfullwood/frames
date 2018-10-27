@@ -3,8 +3,8 @@ pub use frunk::hlist::{HList, HNil, Plucker, Selector};
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
 use hlist::{
-    Appender, Concat, HCons, HListClonable, HListExt, Mapper, Replacer, RowHList,
-    Stringify, Transformer,
+    Appender, Concat, HCons, HListClonable, HListExt, Mapper, Replacer, RowHList, Stringify,
+    Transformer,
 };
 use id;
 use io;
@@ -151,6 +151,8 @@ impl<H: HList> Frame<H> {
     }
 
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
+    /// Add a column to the end of the frame
+    /// The column must have the same number of rows as the existing frame (excepting empty frames).
     pub fn add<Col, Data>(self, col: Data) -> Result<Frame<H::FromRoot>>
     where
         H: Appender<NamedColumn<Col>>,
@@ -159,7 +161,7 @@ impl<H: HList> Frame<H> {
         Data: Into<NamedColumn<Col>>,
     {
         let col = col.into();
-        if self.hlist.len() != 0 && col.len() != self.len {
+        if self.hlist.len() != 0 && col.len() != self.nrows() {
             bail!(
                 "Bad column length (expected {}, found {})",
                 self.nrows(),
@@ -173,11 +175,25 @@ impl<H: HList> Frame<H> {
         }
     }
 
-    pub fn replace<Col: ColId, Index>(&mut self, newcol: NamedColumn<Col>)
+    // TODO is this function useful?
+    /// Replace an existing column with a new column of the same type.
+    /// This operation does not change the type of the frame.
+    ///
+    /// # Panics
+    ///
+    /// panics if the replacement column has a different number of rows from the existing frame
+    pub fn replace<Col: ColId, Index>(&mut self, new_col: NamedColumn<Col>)
     where
         H: Replacer<Col, Index>,
     {
-        self.hlist.replace(newcol)
+        if new_col.len() != self.nrows() {
+            panic!(
+                "Bad columns length (expected {}, found {}",
+                self.nrows(),
+                new_col.len()
+            )
+        }
+        self.hlist.replace(new_col)
     }
 
     pub fn map_replace_all<Col, NewCol, Index, F>(
@@ -241,7 +257,7 @@ impl<H: HList> Frame<H> {
     where
         H: Selector<NamedColumn<Col>, Index>,
         Col: ColId,
-        F: Fn(&mut Col::Output)
+        F: Fn(&mut Col::Output),
     {
         let col = self.get_mut(col);
         col.iter_mut().for_each(|v| f(v))
@@ -284,7 +300,11 @@ impl<H: HList> Frame<H> {
         } else if other.hlist.len() == 0 {
             self.nrows()
         } else if self.nrows() != other.nrows() {
-            bail!("Mismatched lengths ({} and {})", other.nrows(), self.nrows())
+            bail!(
+                "Mismatched lengths ({} and {})",
+                other.nrows(),
+                self.nrows()
+            )
         } else {
             self.nrows()
         };
@@ -641,7 +661,8 @@ where
                         .filter_map(id)
                         .collect();
                     func(&to_acc)
-                }).collect()
+                })
+                .collect()
         };
         let grouped_frame = self.grouped_frame.add(NamedColumn::with(res)).unwrap();
         GroupBy {
@@ -751,8 +772,7 @@ pub(crate) mod tests {
         }
 
         {
-            let f1: Frame2<IntT, FloatT> =
-                Frame::new().add(col![10i64])?.add(col![1.23f64])?;
+            let f1: Frame2<IntT, FloatT> = Frame::new().add(col![10i64])?.add(col![1.23f64])?;
             let f2: Frame1<StringT> = Frame::new().add(vec![Some(String::from("Hello"))])?;
             let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
         }
@@ -803,7 +823,8 @@ pub(crate) mod tests {
             .acc(FloatT, FloatSum, |slice| slice.iter().map(|v| *v).sum())
             .acc(BoolT, TrueCt, |slice| {
                 slice.iter().map(|&&v| if v { 1 } else { 0 }).sum()
-            }).done();
+            })
+            .done();
         assert_eq!(g.get(IntT), &[1, 3, 2, 4]);
         assert_eq!(g.get(FloatSum), &[1., 3., 2., 1.]);
         assert_eq!(g.get(TrueCt), &[1, 0, 1, 1]);
@@ -935,6 +956,23 @@ pub(crate) mod tests {
             let row = f.get_row(0).unwrap();
             assert_eq!(row, (Some(&1), Some(&2.)));
         }
+    }
+
+    #[test]
+    fn test_replace_row() {
+        let mut f = quickframe();
+        // TODO This is very clunky. Making NamedColumns is too confusing and magic
+        let newcol: NamedColumn<FloatT> = NamedColumn::new(col![5., NA, 3., 2., 0.]);
+        f.replace(newcol.clone());
+        assert_eq!(f.get(FloatT), &newcol);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_replace_row_panic() {
+        let mut f = quickframe();
+        let newcol: NamedColumn<FloatT> = NamedColumn::new(col![5., NA, 3., 2., 1., 0.]);
+        f.replace(newcol);
     }
 
     // TODO

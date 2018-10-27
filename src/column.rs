@@ -6,9 +6,9 @@ use smallvec;
 use std;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
+use std::mem::MaybeUninit;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::{RwLock, RwLockReadGuard};
-use std::mem::MaybeUninit;
 
 use array::Array;
 use {id, StdResult};
@@ -42,9 +42,14 @@ impl<T: ColId> NamedColumn<T> {
         NamedColumn::new(Column::new(from))
     }
 
-    // Just a convenience method
+    /// Get the column name
     pub fn name(&self) -> &'static str {
         T::NAME
+    }
+
+    /// Unwrap the underlying column
+    pub fn into_inner(self) -> Column<T::Output> {
+        self.0
     }
 }
 
@@ -81,7 +86,6 @@ where
     }
 }
 
-
 // ### Column def and impls ###
 
 pub struct Column<T> {
@@ -91,10 +95,11 @@ pub struct Column<T> {
     index: RwLock<Option<IndexMap<T>>>,
 }
 
-impl<T> Clone for Column<T> {
-    // TODO clone  without touching unions
+impl<T: Clone> Clone for Column<T> {
+    // TODO this could be optimized by constructing directly
+    // rather than going through an iterator
     fn clone(&self) -> Self {
-        unimplemented!()
+        Column::new_null(self.iter_null().map(|maybe_val| maybe_val.cloned()))
     }
 }
 
@@ -105,7 +110,9 @@ impl<T> Drop for Column<T> {
             .zip(self.valid_slots.iter())
             .for_each(|(val, notnull)| {
                 if notnull {
-                    { drop(unsafe { val.get_mut() }) }
+                    {
+                        drop(unsafe { val.get_mut() })
+                    }
                 }
                 // else val is actually just zeroed memory so don't drop
             })
@@ -173,7 +180,8 @@ impl<T: Debug> Debug for Column<T> {
             .map(|v| {
                 v.map(|v| format!("{:?}", v))
                     .unwrap_or_else(|| String::from("NA"))
-            }).collect();
+            })
+            .collect();
         let vals = vals.join(", ");
         write!(
             f,
@@ -221,12 +229,6 @@ impl<T: Sized> Column<T> {
         self.len() == 0
     }
 
-    // TODO um why?
-    /// Shorthand for clone
-    pub fn c(&self) -> Self {
-        (*self).clone()
-    }
-
     /// Count number of null values. This is an O(1) operation
     pub fn count_nulls(&self) -> usize {
         self.null_count
@@ -256,7 +258,13 @@ impl<T: Sized> Column<T> {
         self.valid_slots
             .iter()
             .zip(self.data.iter())
-            .filter_map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_ref() }) } else { None })
+            .filter_map(|(isvalid, v)| {
+                if isvalid {
+                    Some(unsafe { v.get_ref() })
+                } else {
+                    None
+                }
+            })
     }
 
     /// Mutably iterate over the non-null values of the column
@@ -264,7 +272,13 @@ impl<T: Sized> Column<T> {
         self.valid_slots
             .iter()
             .zip(self.data.iter_mut())
-            .filter_map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_mut() }) } else { None })
+            .filter_map(|(isvalid, v)| {
+                if isvalid {
+                    Some(unsafe { v.get_mut() })
+                } else {
+                    None
+                }
+            })
     }
 
     /// Iterate over the values of the column, including nulls
@@ -272,7 +286,13 @@ impl<T: Sized> Column<T> {
         self.valid_slots
             .iter()
             .zip(self.data.iter())
-            .map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_ref()} ) } else { None })
+            .map(|(isvalid, v)| {
+                if isvalid {
+                    Some(unsafe { v.get_ref() })
+                } else {
+                    None
+                }
+            })
     }
 
     /// Mutably iterate over the values of the column, including nulls
@@ -280,7 +300,13 @@ impl<T: Sized> Column<T> {
         self.valid_slots
             .iter()
             .zip(self.data.iter_mut())
-            .map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_mut() }) } else { None })
+            .map(|(isvalid, v)| {
+                if isvalid {
+                    Some(unsafe { v.get_mut() })
+                } else {
+                    None
+                }
+            })
     }
 
     /// Convenience method to construct a new Column from application of `func`
@@ -316,7 +342,13 @@ impl<T: Sized> Column<T> {
     ) -> impl Iterator<Item = Option<&T>> {
         let data = &self.data;
         let valid_slots = &self.valid_slots;
-        iter.map(move |ix| if valid_slots[ix] { Some(unsafe { data[ix].get_ref() }) } else { None })
+        iter.map(move |ix| {
+            if valid_slots[ix] {
+                Some(unsafe { data[ix].get_ref() })
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -387,7 +419,8 @@ impl<T: Clone> Column<T> {
                 let first = *inner.first().unwrap();
                 // TODO We assume index is in bounds and value is not null
                 self.get(first).unwrap().unwrap().clone()
-            }).collect();
+            })
+            .collect();
         Column::new(data)
     }
 
@@ -890,10 +923,10 @@ mod tests {
     #[test]
     fn test_basic_ops() {
         let c1 = col![1, 2, 3, NA, 4, 3, 4, 1, NA, 5, 2];
-        let c2 = (c1.c() + 2) * 2;
+        let c2 = (c1.clone() + 2) * 2;
         let c3 = (c2 / 2) - 2;
         assert_eq!(c1, c3);
-        let c4 = c3.c() * c3 - c1;
+        let c4 = c3.clone() * c3 - c1;
         assert_eq!(c4, col![0, 2, 6, NA, 12, 6, 12, 0, NA, 20, 2]);
     }
 }

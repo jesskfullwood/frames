@@ -1,6 +1,5 @@
 #![feature(maybe_uninit)]
 #![recursion_limit = "128"]
-
 #![cfg_attr(feature = "unstable", feature(test))]
 
 #[cfg(all(feature = "unstable", test))]
