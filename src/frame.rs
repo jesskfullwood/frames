@@ -18,6 +18,7 @@ use Result;
 
 // ### Frame ###
 
+/// A strongly-typed data structure containing [NamedColumns](struct.NamedColumn.html)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     pub(crate) hlist: H,
@@ -25,6 +26,7 @@ pub struct Frame<H: HList> {
 }
 
 impl Frame<HNil> {
+    /// Construct an empty frame
     pub fn new() -> Frame0 {
         Frame {
             hlist: HNil,
@@ -151,7 +153,8 @@ impl<H: HList> Frame<H> {
     }
 
     // TODO: what would be nicer is a `setcol` func which either adds or modifies
-    /// Add a column to the end of the frame
+    /// Add a column to the end of the frame.
+    ///
     /// The column must have the same number of rows as the existing frame (excepting empty frames).
     pub fn add<Col, Data>(self, col: Data) -> Result<Frame<H::FromRoot>>
     where
@@ -969,7 +972,7 @@ pub(crate) mod tests {
 
     #[test]
     #[should_panic]
-    fn test_replace_row_panic() {
+    fn test_replace_row_wrong_length() {
         let mut f = quickframe();
         let newcol: NamedColumn<FloatT> = NamedColumn::new(col![5., NA, 3., 2., 1., 0.]);
         f.replace(newcol);

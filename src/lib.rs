@@ -17,8 +17,11 @@ extern crate ordered_float;
 extern crate serde;
 extern crate smallvec;
 
+#[doc(inline)]
 pub use column::{ColId, Column, NamedColumn};
+#[doc(inline)]
 pub use frame::Frame;
+#[doc(inline)]
 pub use io::read_csv;
 
 mod array;

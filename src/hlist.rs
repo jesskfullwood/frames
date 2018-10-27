@@ -320,6 +320,6 @@ mod tests {
             },
         };
         let words = cons.stringify();
-        assert_eq!(words, vec!["10".to_string(), "hello".to_string()]);
+        assert_eq!(words, vec!["hello".to_string(), "10".to_string()]);
     }
 }
