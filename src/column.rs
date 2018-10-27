@@ -6,9 +6,9 @@ use smallvec;
 use std;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-use std::mem::ManuallyDrop;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{RwLock, RwLockReadGuard};
+use std::mem::MaybeUninit;
 
 use array::Array;
 use {id, StdResult};
@@ -17,6 +17,16 @@ use {id, StdResult};
 pub(crate) type IndexVec = smallvec::SmallVec<[usize; 2]>;
 type IndexMap<T> = BTreeMap<T, IndexVec>;
 type IndexKeys<'a, T> = std::collections::btree_map::Keys<'a, T, IndexVec>;
+
+/// A trait which tags a column with a name and type
+pub trait ColId: Copy {
+    const NAME: &'static str;
+    type Output;
+
+    fn name() -> &'static str {
+        Self::NAME
+    }
+}
 
 // ### NamedColumn def and impls ###
 
@@ -47,15 +57,6 @@ where
     }
 }
 
-pub trait ColId: Copy {
-    const NAME: &'static str;
-    type Output;
-
-    fn name() -> &'static str {
-        Self::NAME
-    }
-}
-
 impl<T: ColId> Deref for NamedColumn<T> {
     type Target = Column<T::Output>;
     fn deref(&self) -> &Self::Target {
@@ -80,12 +81,13 @@ where
     }
 }
 
+
 // ### Column def and impls ###
 
 pub struct Column<T> {
-    data: Array<ManuallyDrop<T>>,
+    data: Array<MaybeUninit<T>>,
     null_count: usize,
-    null_vec: BitVec,
+    valid_slots: BitVec,
     index: RwLock<Option<IndexMap<T>>>,
 }
 
@@ -100,15 +102,22 @@ impl<T> Drop for Column<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
-            .zip(self.null_vec.iter())
+            .zip(self.valid_slots.iter())
             .for_each(|(val, notnull)| {
                 if notnull {
-                    unsafe { ManuallyDrop::drop(val) }
+                    { drop(unsafe { val.get_mut() }) }
                 }
                 // else val is actually just zeroed memory so don't drop
             })
     }
 }
+
+// pub trait IntoIterator where
+//     <Self::IntoIter as Iterator>::Item == Self::Item, {
+//     type Item;
+//     type IntoIter: Iterator;
+//     fn into_iter(self) -> Self::IntoIter;
+// }
 
 // impl<T, I: IntoIterator<Item = T>> From<I> for Column<T> {
 //     fn from(iter: I) -> Column<T> {
@@ -178,27 +187,27 @@ impl<T: Debug> Debug for Column<T> {
 
 impl<T: Sized> Column<T> {
     pub fn new(data: impl IntoIterator<Item = T>) -> Column<T> {
-        // ManuallyDrop is a zero-cost wrapper so this should be safe
+        // MaybeUninit is a zero-cost wrapper so this should be safe
         let data = Array::new(data.into_iter().collect());
-        let data = unsafe { std::mem::transmute::<Array<T>, Array<ManuallyDrop<T>>>(data) };
+        let data = unsafe { std::mem::transmute::<Array<T>, Array<MaybeUninit<T>>>(data) };
         Column {
             null_count: 0,
-            null_vec: BitVec::from_elem(data.len(), true),
+            valid_slots: BitVec::from_elem(data.len(), true),
             data,
             index: RwLock::new(None),
         }
     }
 
     pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
-        let mut null_vec = BitVec::new();
+        let mut valid_slots = BitVec::new();
         let mut null_count = 0;
         let mut arr = Vec::new();
         for v in data {
-            push_maybe_null(v, &mut arr, &mut null_vec, &mut null_count);
+            push_maybe_null(v, &mut arr, &mut valid_slots, &mut null_count);
         }
         Column {
             null_count,
-            null_vec,
+            valid_slots,
             data: Array::new(arr),
             index: RwLock::new(None),
         }
@@ -235,47 +244,47 @@ impl<T: Sized> Column<T> {
     /// Returns wrapped value, or None if null,
     /// wrapped in bounds-check
     pub fn get(&self, ix: usize) -> Option<Option<&T>> {
-        match self.null_vec.get(ix) {
+        match self.valid_slots.get(ix) {
             None => None, // out of bounds
-            Some(true) => Some(Some(&self.data[ix])),
+            Some(true) => Some(Some(unsafe { self.data[ix].get_ref() })),
             Some(false) => Some(None),
         }
     }
 
     /// Iterate over the non-null values of the column
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.null_vec
+        self.valid_slots
             .iter()
             .zip(self.data.iter())
-            .filter_map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
+            .filter_map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_ref() }) } else { None })
     }
 
     /// Mutably iterate over the non-null values of the column
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
-        self.null_vec
+        self.valid_slots
             .iter()
             .zip(self.data.iter_mut())
-            .filter_map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
+            .filter_map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_mut() }) } else { None })
     }
 
     /// Iterate over the values of the column, including nulls
     pub fn iter_null(&self) -> impl Iterator<Item = Option<&T>> + '_ {
-        self.null_vec
+        self.valid_slots
             .iter()
             .zip(self.data.iter())
-            .map(|(isvalid, v)| if isvalid { Some(v.deref()) } else { None })
+            .map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_ref()} ) } else { None })
     }
 
     /// Mutably iterate over the values of the column, including nulls
     pub fn iter_mut_null(&mut self) -> impl Iterator<Item = Option<&mut T>> + '_ {
-        self.null_vec
+        self.valid_slots
             .iter()
             .zip(self.data.iter_mut())
-            .map(|(isvalid, v)| if isvalid { Some(v.deref_mut()) } else { None })
+            .map(|(isvalid, v)| if isvalid { Some(unsafe { v.get_mut() }) } else { None })
     }
 
     /// Convenience method to construct a new Column from application of `func`
-    /// - nulls are left unchanged
+    /// - nulls are propagated
     pub fn map<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
         Column::new_null(self.iter_null().map(|v| {
             match v {
@@ -306,30 +315,30 @@ impl<T: Sized> Column<T> {
         iter: impl Iterator<Item = usize>,
     ) -> impl Iterator<Item = Option<&T>> {
         let data = &self.data;
-        let nulls = &self.null_vec;
-        iter.map(move |ix| if nulls[ix] { Some(&*data[ix]) } else { None })
+        let valid_slots = &self.valid_slots;
+        iter.map(move |ix| if valid_slots[ix] { Some(unsafe { data[ix].get_ref() }) } else { None })
     }
 }
 
 #[inline]
 fn push_maybe_null<T>(
     val: Option<T>,
-    data: &mut Vec<ManuallyDrop<T>>,
-    null_vec: &mut BitVec,
+    data: &mut Vec<MaybeUninit<T>>,
+    valid_slots: &mut BitVec,
     null_count: &mut usize,
 ) {
     match val {
         Some(v) => {
-            null_vec.push(true);
-            data.push(ManuallyDrop::new(v));
+            valid_slots.push(true);
+            // TODO: benchmark vs MaybeUninit::zeroed
+            let mut uninit = MaybeUninit::uninitialized();
+            uninit.set(v);
+            data.push(uninit)
         }
         None => {
-            null_vec.push(false);
+            valid_slots.push(false);
             *null_count += 1;
-            // TODO this is UB when we try to DROP it, will possibly segfault
-            // Just use a default bound instead?
-            let scary: T = unsafe { ::std::mem::zeroed() };
-            data.push(ManuallyDrop::new(scary))
+            data.push(MaybeUninit::uninitialized());
         }
     }
 }
@@ -846,8 +855,10 @@ mod tests {
         // contains no nulls
         let c1 = Column::new(vec![Arc::new(10), Arc::new(20)]);
         drop(c1);
-        // contains nulls -> segfaults!
+        // contains nulls
         let c2 = Column::from(vec![Some(Rc::new(1)), None]);
+        drop(c2);
+        let c2 = Column::from(vec![Some(()), None]);
         drop(c2);
     }
 

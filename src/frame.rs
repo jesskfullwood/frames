@@ -1,9 +1,9 @@
-use frunk::hlist::{HList, HNil, Plucker, Selector};
+pub use frunk::hlist::{HList, HNil, Plucker, Selector};
 
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
 use hlist::{
-    Appender, Concat, HCons, HConsFrunk, HListClonable, HListExt, Mapper, Replacer, RowHList,
+    Appender, Concat, HCons, HListClonable, HListExt, Mapper, Replacer, RowHList,
     Stringify, Transformer,
 };
 use id;
@@ -116,9 +116,33 @@ impl<H: HList> Frame<H> {
         names
     }
 
-    #[inline]
     #[allow(unused_variables)]
+    /// Get column from specified column ident
     pub fn get<Col, Index>(&self, col: Col) -> &NamedColumn<Col>
+    where
+        Col: ColId,
+        H: Selector<NamedColumn<Col>, Index>,
+    {
+        Selector::get(&self.hlist)
+    }
+
+    #[allow(unused_variables)]
+    /// Mutably column from specified column ident
+    fn get_mut<Col, Index>(&mut self, col: Col) -> &mut NamedColumn<Col>
+    where
+        Col: ColId,
+        H: Selector<NamedColumn<Col>, Index>,
+    {
+        // NOTE This function is potentialy unsafe, if swap is called on
+        // the mut ref to insert a col with the wrong length
+        Selector::get_mut(&mut self.hlist)
+    }
+
+    /// Get column from specifying column ident at the type level.
+    ///
+    /// This feels a little less natural to type than `get` but is more convenient
+    /// in circumstances where an ident type is not at hand
+    pub fn have<Col, Index>(&self) -> &NamedColumn<Col>
     where
         Col: ColId,
         H: Selector<NamedColumn<Col>, Index>,
@@ -211,6 +235,16 @@ impl<H: HList> Frame<H> {
             NamedColumn::new(col.map(func))
         };
         self.add(newcol).unwrap() // safe to unwrap as we know it is the same length
+    }
+
+    pub fn map_in_place<Col, Index, F>(&mut self, col: Col, f: F)
+    where
+        H: Selector<NamedColumn<Col>, Index>,
+        Col: ColId,
+        F: Fn(&mut Col::Output)
+    {
+        let col = self.get_mut(col);
+        col.iter_mut().for_each(|v| f(v))
     }
 
     #[inline(always)]
