@@ -43,7 +43,6 @@ pub use frame::Frame;
 #[doc(inline)]
 pub use io::read_csv;
 
-mod array;
 #[macro_use]
 pub mod column;
 #[macro_use]

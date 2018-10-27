@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use column::ColId;
 use frame::Frame;
-use hlist::{HCons as HConsFrame, HListExt, RowHList, Transformer};
+use hlist::{ColCons, HListExt, RowHList, Transformer};
 use Result;
 
 // ### Reader implementation ###
@@ -82,7 +82,7 @@ where
     }
     fn to_frame(mut fb: Self::VecList) -> Self {
         fb.head.0.shrink_to_fit();
-        HConsFrame {
+        ColCons {
             head: fb.head.0.into(),
             tail: Tail::to_frame(fb.tail),
         }
@@ -226,7 +226,7 @@ where
 //     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)>;
 // }
 
-// impl<Col, Tail> WriteToBuffer for HConsFrame<Col, Tail>
+// impl<Col, Tail> WriteToBuffer for ColCons<Col, Tail>
 // where
 //     Col: ColId,
 //     Column<Col::Output>: WriteBuffer,

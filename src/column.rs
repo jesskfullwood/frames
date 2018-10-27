@@ -10,7 +10,6 @@ use std::mem::MaybeUninit;
 use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Rem, Sub};
 use std::sync::{RwLock, RwLockReadGuard};
 
-use array::Array;
 use {id, StdResult};
 
 // TODO benchmark smallvec vs Vec
@@ -89,7 +88,7 @@ where
 // ### Column def and impls ###
 
 pub struct Column<T> {
-    data: Array<MaybeUninit<T>>,
+    data: Vec<MaybeUninit<T>>,
     null_count: usize,
     valid_slots: BitVec,
     index: RwLock<Option<IndexMap<T>>>,
@@ -195,9 +194,15 @@ impl<T: Debug> Debug for Column<T> {
 
 impl<T: Sized> Column<T> {
     pub fn new(data: impl IntoIterator<Item = T>) -> Column<T> {
-        // MaybeUninit is a zero-cost wrapper so this should be safe
-        let data = Array::new(data.into_iter().collect());
-        let data = unsafe { std::mem::transmute::<Array<T>, Array<MaybeUninit<T>>>(data) };
+        // MaybeUninit is a zero-cost wrapper so cast this should be safe
+        let data: Vec<MaybeUninit<T>> = data
+            .into_iter()
+            .map(|val| {
+                let mut uninit = MaybeUninit::uninitialized();
+                uninit.set(val);
+                uninit
+            })
+            .collect();
         Column {
             null_count: 0,
             valid_slots: BitVec::from_elem(data.len(), true),
@@ -362,10 +367,9 @@ fn push_maybe_null<T>(
     match val {
         Some(v) => {
             valid_slots.push(true);
-            // TODO: benchmark vs MaybeUninit::zeroed
-            let mut uninit = MaybeUninit::uninitialized();
-            uninit.set(v);
-            data.push(uninit)
+            let mut m = MaybeUninit::uninitialized();
+            m.set(v);
+            data.push(m);
         }
         None => {
             valid_slots.push(false);
