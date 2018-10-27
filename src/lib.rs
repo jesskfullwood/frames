@@ -110,3 +110,37 @@ mod benchmarks {
         b.iter(|| f1.clone().inner_join(&f2, IntT, IntT))
     }
 }
+
+#[test]
+fn doctesty() {
+    #[derive(Clone, Copy)]
+    enum Fruit {
+        Apple,
+        Banana,
+        Orange,
+    }
+
+    // define_frame!(MyFrame, name: String, age: u32, favourite_fruit: Fruit);
+
+    // desugars to
+
+    type MyFrame = frame::Frame3<Name, Age, FavouriteFruit>;
+    #[derive(Clone, Copy)]
+    struct Name;
+    impl ColId for Name {
+        type Output = String;
+        const NAME: &'static str = "name";
+    }
+    #[derive(Clone, Copy)]
+    struct Age;
+    impl ColId for Age {
+        type Output = u32;
+        const NAME: &'static str = "age";
+    }
+    #[derive(Clone, Copy)]
+    struct FavouriteFruit;
+    impl ColId for FavouriteFruit {
+        type Output = Fruit;
+        const NAME: &'static str = "favourite fruit";
+    }
+}

@@ -310,7 +310,7 @@ pub trait Transformer {
 
 pub trait Insertable {
     type ProductOpt;
-    fn empty(size_hint: usize) -> Self;
+    fn empty() -> Self;
     fn insert(&mut self, product_opt: Self::ProductOpt);
 }
 
@@ -320,8 +320,8 @@ where
     Tail: HList + Insertable,
 {
     type ProductOpt = HCons<Option<Col::Output>, Tail::ProductOpt>;
-    fn empty(size_hint: usize) -> Self {
-        <Tail as Insertable>::empty(size_hint).prepend(NamedColumn::empty())
+    fn empty() -> Self {
+        <Tail as Insertable>::empty().prepend(NamedColumn::empty())
     }
     fn insert(&mut self, product: Self::ProductOpt) {
         let HCons {
@@ -335,7 +335,7 @@ where
 
 impl Insertable for HNil {
     type ProductOpt = HNil;
-    fn empty(_size_hint: usize) -> Self {
+    fn empty() -> Self {
         HNil
     }
     fn insert(&mut self, _product: Self::ProductOpt) {}

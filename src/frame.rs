@@ -98,9 +98,9 @@ impl<H: HList> Frame<H> {
     /// Parse a CSV into a frame
     pub fn from_csv(path: impl AsRef<::std::path::Path>) -> Result<Frame<H>>
     where
-        H: HList + io::Insertable,
-        H::Product: Transformer,
-        <H::Product as Transformer>::Flattened: ::serde::de::DeserializeOwned,
+        H: HList + Insertable,
+        H::ProductOpt: Transformer,
+        <H::ProductOpt as Transformer>::Flattened: ::serde::de::DeserializeOwned,
     {
         io::read_csv(path)
     }
@@ -709,7 +709,15 @@ impl<H> Frame<H>
 where
     H: HList + Insertable,
 {
-    pub(crate) fn insert_row(&mut self, product: H::ProductOpt)
+    pub fn empty() -> Frame<H> {
+        Frame {
+            hlist: H::empty(),
+            len: 0
+        }
+    }
+
+    #[inline]
+    pub fn insert_row(&mut self, product: H::ProductOpt)
     where
         H: Insertable,
     {

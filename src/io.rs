@@ -5,107 +5,19 @@ use std::path::Path;
 
 use csv;
 use frunk::generic::{into_generic, Generic};
-use frunk::hlist::{HCons as HConsFrunk, HList, HNil};
+use frunk::hlist::HList;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use column::ColId;
 use frame::Frame;
-use hlist::{ColCons, HListExt, RowHList, Transformer};
+use hlist::{HListExt, RowHList, Transformer, Insertable};
 use Result;
-
-// ### Reader implementation ###
-
-struct FrameBuilder<H: HList + Insertable> {
-    inner: H::VecList,
-    len: usize,
-}
-
-impl<H> FrameBuilder<H>
-where
-    H: HList + Insertable,
-{
-    fn new() -> Self {
-        FrameBuilder {
-            // TODO make a proper guess at size (from file size?)
-            inner: H::empty(100_000),
-            len: 0,
-        }
-    }
-
-    pub(crate) fn insert_row(&mut self, product: H::Product)
-    where
-        H: Insertable,
-    {
-        H::insert(&mut self.inner, product);
-        self.len += 1;
-    }
-
-    fn build(self) -> Frame<H> {
-        Frame {
-            hlist: H::to_frame(self.inner),
-            len: self.len,
-        }
-    }
-}
-
-// This is necessary to attach type parameter ColId to Vec
-pub struct VecWrap<C: ColId>(Vec<Option<C::Output>>);
-
-// ### Insertable
-
-pub trait Insertable {
-    type VecList: HList;
-    type Product;
-    fn empty(size_hint: usize) -> Self::VecList;
-    fn insert(&mut Self::VecList, product: Self::Product);
-    fn to_frame(Self::VecList) -> Self;
-}
-
-impl<Col, Tail> Insertable for ColCons<Col, Tail>
-where
-    Col: ColId,
-    Tail: HList + Insertable,
-{
-    type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
-    type VecList = HConsFrunk<VecWrap<Col>, Tail::VecList>;
-    fn empty(size_hint: usize) -> Self::VecList {
-        <Tail as Insertable>::empty(size_hint).prepend(VecWrap(Vec::with_capacity(size_hint)))
-    }
-    fn insert(fb: &mut Self::VecList, product: Self::Product) {
-        let HConsFrunk {
-            head: val,
-            tail: rest,
-        } = product;
-        fb.head.0.push(val);
-        Tail::insert(&mut fb.tail, rest);
-    }
-    fn to_frame(mut fb: Self::VecList) -> Self {
-        fb.head.0.shrink_to_fit();
-        ColCons {
-            head: fb.head.0.into(),
-            tail: Tail::to_frame(fb.tail),
-        }
-    }
-}
-
-impl Insertable for HNil {
-    type Product = HNil;
-    type VecList = HNil;
-    fn empty(_size_hint: usize) -> Self::VecList {
-        HNil
-    }
-    fn insert(_fb: &mut Self::VecList, _product: Self::Product) {}
-    fn to_frame(_fb: Self::VecList) -> Self {
-        HNil
-    }
-}
 
 pub fn read_csv<H>(path: impl AsRef<Path>) -> Result<Frame<H>>
 where
     H: HList + Insertable,
-    H::Product: Transformer,
-    <H::Product as Transformer>::Flattened: DeserializeOwned,
+    H::ProductOpt: Transformer,
+    <H::ProductOpt as Transformer>::Flattened: DeserializeOwned,
 {
     let f = File::open(path)?;
     let f = BufReader::new(f);
@@ -115,8 +27,8 @@ where
 pub fn read_string<H>(data: &str) -> Result<Frame<H>>
 where
     H: HList + Insertable,
-    H::Product: Transformer,
-    <H::Product as Transformer>::Flattened: DeserializeOwned,
+    H::ProductOpt: Transformer,
+    <H::ProductOpt as Transformer>::Flattened: DeserializeOwned,
 {
     let cur = Cursor::new(data);
     read_reader(cur)
@@ -125,39 +37,39 @@ where
 pub fn read_reader<R, H>(reader: R) -> Result<Frame<H>>
 where
     H: HList + Insertable,
-    H::Product: Transformer,
-    <H::Product as Transformer>::Flattened: DeserializeOwned,
+    H::ProductOpt: Transformer,
+    <H::ProductOpt as Transformer>::Flattened: DeserializeOwned,
     R: Read,
 {
     let mut reader = csv::Reader::from_reader(reader);
     // TODO check header names against frame names?
     let _headers = reader.headers()?.clone();
-    let mut builder: FrameBuilder<H> = FrameBuilder::new();
+    let mut frame = Frame::empty();
     for row in reader.deserialize() {
-        let row: <H::Product as Transformer>::Flattened = row?;
-        let row = <H::Product as Transformer>::nest(row);
-        builder.insert_row(row);
+        let row: <H::ProductOpt as Transformer>::Flattened = row?;
+        let row = <H::ProductOpt as Transformer>::nest(row);
+        frame.insert_row(row);
     }
-    Ok(builder.build())
+    Ok(frame)
 }
 
 pub fn read_serde<T, R, H>(reader: R) -> Result<Frame<H>>
 where
     H: HList + Insertable,
-    T: DeserializeOwned + Generic<Repr = H::Product>,
-    H::Product: Transformer,
+    T: DeserializeOwned + Generic<Repr = H::ProductOpt>,
+    H::ProductOpt: Transformer,
     R: Read,
 {
     let mut reader = csv::Reader::from_reader(reader);
     // TODO check header names against frame names?
     let _headers = reader.headers()?.clone();
-    let mut builder: FrameBuilder<H> = FrameBuilder::new();
+    let mut frame = Frame::empty();
     for row in reader.deserialize() {
         let elem: T = row?;
-        let row: H::Product = into_generic(elem);
-        builder.insert_row(row);
+        let row: H::ProductOpt = into_generic(elem);
+        frame.insert_row(row);
     }
-    Ok(builder.build())
+    Ok(frame)
 }
 
 impl<H> Frame<H>
