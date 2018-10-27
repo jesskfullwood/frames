@@ -34,6 +34,9 @@ impl Frame<HNil> {
         }
     }
 
+    /// Construct a Frame with one column built from `data`.
+    ///
+    /// Useful when chained with [add](struct.Frame.html#method.add).
     pub fn with<Col, Data>(data: Data) -> Frame1<Col>
     where
         Col: ColId,
@@ -57,12 +60,16 @@ impl Default for Frame<HNil> {
 }
 
 #[macro_export]
-macro_rules! frame {
-    ($($col:expr),* $(,)*) => {
+macro_rules! frame_col {
+    () => {
+        Frame::new()
+    };
+    ($([$($x:tt),* $(,)*]),+ $(,)*) => {
         {
             let f = $crate::Frame::new();
             $(
-                let f = f.add($col).unwrap();
+                let c: Column<_> = col![$($x,)*];
+                let f = f.add(c).unwrap();
             )*;
             f
         }
@@ -921,8 +928,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_frame_macro() {
-        let _empty = frame![];
-        let f: Frame2<IntT, FloatT> = frame![col![1, 2, 3, NA, 4], col![1., 2., 3., NA, 4.],];
+        let _empty = frame_col![];
+        let f: Frame2<IntT, FloatT> = frame_col![[1, 2, 3, NA, 4], [1., 2., 3., NA, 4.]];
         assert_eq!(f.get(IntT), &col![1, 2, 3, NA, 4]);
     }
 
@@ -941,7 +948,7 @@ pub(crate) mod tests {
     #[test]
     fn test_get_row() {
         use frunk;
-        let f: Frame2<IntT, FloatT> = frame![col![1, 2], col![2., 3.]];
+        let f: Frame2<IntT, FloatT> = frame_col![[1, 2], [2., 3.]];
         {
             let row = f.get_row_hlist(0).unwrap();
             assert_eq!(
@@ -981,7 +988,7 @@ pub(crate) mod tests {
     // TODO
     // #[test]
     // fn test_display() {
-    //     let f: Frame1<IntT> = frame![col![1, 2, 3, NA, 4]];
+    //     let f: Frame1<IntT> = frame![[1, 2, 3, NA, 4]];
     //     format!("{}", f);
     // }
 
