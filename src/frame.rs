@@ -59,23 +59,6 @@ impl Default for Frame<HNil> {
     }
 }
 
-#[macro_export]
-macro_rules! frame_col {
-    () => {
-        Frame::new()
-    };
-    ($([$($x:tt),* $(,)*]),+ $(,)*) => {
-        {
-            let f = $crate::Frame::new();
-            $(
-                let c: Column<_> = col![$($x,)*];
-                let f = f.add(c).unwrap();
-            )*;
-            f
-        }
-    }
-}
-
 impl<H> fmt::Display for Frame<H>
 where
     H: HList + for<'a> RowHList<'a>,
@@ -712,16 +695,13 @@ where
     pub fn empty() -> Frame<H> {
         Frame {
             hlist: H::empty(),
-            len: 0
+            len: 0,
         }
     }
 
     #[inline]
-    pub fn insert_row(&mut self, product: H::ProductOpt)
-    where
-        H: Insertable,
-    {
-        self.hlist.insert(product);
+    pub fn insert_row(&mut self, product: impl Into<H::ProductOpt>) {
+        self.hlist.insert(product.into());
         self.len += 1;
     }
 }
@@ -732,6 +712,7 @@ pub(crate) mod test_fixtures {
 
     define_col!(IntT, i64, int_col);
     define_col!(StringT, String, string_col);
+    define_col!(StrT, &'static str, str_col);
     define_col!(FloatT, f64, float_col);
     define_col!(BoolT, bool, bool_col);
 
@@ -948,8 +929,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_insert_rows() {
+        let mut frame: Data3 = Frame::empty();
+        frame.insert_row((Some(10), Some(3.23), None));
+        frame.insert_row((None, None, Some("test".into())));
+    }
+
+    #[test]
     fn test_frame_macro() {
-        let _empty = frame_col![];
+        let _empty: Data3 = frame![];
+        let f: Frame3<IntT, FloatT, StrT> =
+            frame![[NA, 1.0, "test"], [2, NA, "test2"], [3, 3.0, NA]];
+        // assert_eq!(f.get_row[0], 10);
+    }
+
+    #[test]
+    fn test_frame_col_macro() {
+        let _empty: Data3 = frame_col![];
         let f: Frame2<IntT, FloatT> = frame_col![[1, 2, 3, NA, 4], [1., 2., 3., NA, 4.]];
         assert_eq!(f.get(IntT), &col![1, 2, 3, NA, 4]);
     }

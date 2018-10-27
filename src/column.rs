@@ -755,16 +755,6 @@ macro_rules! col {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! wrap_val {
-    (NA) => {
-        None
-    };
-    ($val:tt) => {
-        Some($val)
-    };
-}
-
 pub struct Mask {
     mask: Column<bool>,
     true_count: usize,
@@ -830,23 +820,6 @@ where
         // safe to unwrap the `Option<IndexMap>` as we know index has been built
         self.guard.as_ref().unwrap().keys()
     }
-}
-
-// TODO this only works for single idents, ie "my string column" is not allowed
-#[macro_export]
-macro_rules! define_col {
-    ($tyname:ident, $typ:ty) => {
-        define_col!($tyname, $typ, $tyname);
-    };
-    ($tyname:ident, $typ:ty, $name:ident) => {
-        // This type is just a marker and cannot be instantiated
-        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-        pub struct $tyname;
-        impl $crate::column::ColId for $tyname {
-            const NAME: &'static str = stringify!($name);
-            type Output = $typ;
-        }
-    };
 }
 
 #[cfg(test)]

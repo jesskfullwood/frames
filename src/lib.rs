@@ -30,6 +30,7 @@ extern crate test;
 extern crate failure;
 extern crate bit_vec;
 extern crate csv;
+#[macro_use]
 extern crate frunk;
 extern crate num;
 extern crate ordered_float;
@@ -44,8 +45,10 @@ pub use frame::Frame;
 pub use io::read_csv;
 
 #[macro_use]
-pub mod column;
+#[allow(unused_imports)]
+pub mod macros;
 #[macro_use]
+pub mod column;
 pub mod frame;
 mod frame_typedef;
 pub(crate) mod hlist;

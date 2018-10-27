@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use frame::Frame;
-use hlist::{HListExt, RowHList, Transformer, Insertable};
+use hlist::{HListExt, Insertable, RowHList, Transformer};
 use Result;
 
 pub fn read_csv<H>(path: impl AsRef<Path>) -> Result<Frame<H>>
