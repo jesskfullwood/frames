@@ -306,6 +306,41 @@ pub trait Transformer {
     fn flatten(self) -> Self::Flattened;
 }
 
+// ### Insertable
+
+pub trait Insertable {
+    type ProductOpt;
+    fn empty(size_hint: usize) -> Self;
+    fn insert(&mut self, product_opt: Self::ProductOpt);
+}
+
+impl<Col, Tail> Insertable for ColCons<Col, Tail>
+where
+    Col: ColId,
+    Tail: HList + Insertable,
+{
+    type ProductOpt = HCons<Option<Col::Output>, Tail::ProductOpt>;
+    fn empty(size_hint: usize) -> Self {
+        <Tail as Insertable>::empty(size_hint).prepend(NamedColumn::empty())
+    }
+    fn insert(&mut self, product: Self::ProductOpt) {
+        let HCons {
+            head: optval,
+            tail: rest,
+        } = product;
+        self.head.insert(optval);
+        self.tail.insert(rest);
+    }
+}
+
+impl Insertable for HNil {
+    type ProductOpt = HNil;
+    fn empty(_size_hint: usize) -> Self {
+        HNil
+    }
+    fn insert(&mut self, _product: Self::ProductOpt) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

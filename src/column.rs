@@ -33,6 +33,10 @@ pub trait ColId: Copy {
 pub struct NamedColumn<T: ColId>(Column<T::Output>);
 
 impl<T: ColId> NamedColumn<T> {
+    pub(crate) fn empty() -> Self {
+        NamedColumn(Column::empty())
+    }
+
     pub(crate) fn new(unnamed: Column<T::Output>) -> Self {
         NamedColumn(unnamed)
     }
@@ -193,6 +197,15 @@ impl<T: Debug> Debug for Column<T> {
 }
 
 impl<T: Sized> Column<T> {
+    pub fn empty() -> Column<T> {
+        Column {
+            null_count: 0,
+            valid_slots: BitVec::new(),
+            data: Vec::new(),
+            index: RwLock::new(None),
+        }
+    }
+
     pub fn new(data: impl IntoIterator<Item = T>) -> Column<T> {
         // MaybeUninit is a zero-cost wrapper so cast this should be safe
         let data: Vec<MaybeUninit<T>> = data
@@ -212,18 +225,11 @@ impl<T: Sized> Column<T> {
     }
 
     pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
-        let mut valid_slots = BitVec::new();
-        let mut null_count = 0;
-        let mut arr = Vec::new();
+        let mut col = Column::empty();
         for v in data {
-            push_maybe_null(v, &mut arr, &mut valid_slots, &mut null_count);
+            col.insert(v);
         }
-        Column {
-            null_count,
-            valid_slots,
-            data: Array::new(arr),
-            index: RwLock::new(None),
-        }
+        col
     }
 
     pub fn len(&self) -> usize {
@@ -255,6 +261,22 @@ impl<T: Sized> Column<T> {
             None => None, // out of bounds
             Some(true) => Some(Some(unsafe { self.data[ix].get_ref() })),
             Some(false) => Some(None),
+        }
+    }
+
+    pub fn insert(&mut self, val_opt: Option<T>) {
+        match val_opt {
+            Some(v) => {
+                self.valid_slots.push(true);
+                let mut m = MaybeUninit::uninitialized();
+                m.set(v);
+                self.data.push(m);
+            }
+            None => {
+                self.valid_slots.push(false);
+                self.null_count += 1;
+                self.data.push(MaybeUninit::uninitialized());
+            }
         }
     }
 
@@ -354,28 +376,6 @@ impl<T: Sized> Column<T> {
                 None
             }
         })
-    }
-}
-
-#[inline]
-fn push_maybe_null<T>(
-    val: Option<T>,
-    data: &mut Vec<MaybeUninit<T>>,
-    valid_slots: &mut BitVec,
-    null_count: &mut usize,
-) {
-    match val {
-        Some(v) => {
-            valid_slots.push(true);
-            let mut m = MaybeUninit::uninitialized();
-            m.set(v);
-            data.push(m);
-        }
-        None => {
-            valid_slots.push(false);
-            *null_count += 1;
-            data.push(MaybeUninit::uninitialized());
-        }
     }
 }
 

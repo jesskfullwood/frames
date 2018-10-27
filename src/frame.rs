@@ -705,6 +705,19 @@ where
     }
 }
 
+impl<H> Frame<H>
+where
+    H: HList + Insertable,
+{
+    pub(crate) fn insert_row(&mut self, product: H::ProductOpt)
+    where
+        H: Insertable,
+    {
+        self.hlist.insert(product);
+        self.len += 1;
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test_fixtures {
     use super::*;

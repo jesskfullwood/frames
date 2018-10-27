@@ -62,7 +62,7 @@ pub trait Insertable {
     fn to_frame(Self::VecList) -> Self;
 }
 
-impl<Col, Tail> Insertable for HConsFrame<Col, Tail>
+impl<Col, Tail> Insertable for ColCons<Col, Tail>
 where
     Col: ColId,
     Tail: HList + Insertable,
