@@ -1,3 +1,22 @@
+//! # Frames
+//!
+//! A [Frame](struct.Frame.html) is a fast, flexible and typesafe datastructure, designed for use in
+//! data analysis and statistics.
+//! Similar to [R](https://stat.ethz.ch/R-manual/R-devel/library/base/html/data.frame.html),
+//! or Python's [pandas](https://pandas.pydata.org/) library, a `Frame` is an in-memory collection
+//! of named, heterogeneously-typed columns. Each column behaves similarly to a standard `Vec`,
+//! and the `Frame` as a whole can be grouped, joined and filtered very much like an SQL table.
+//!
+//! Being statically-typed, Rust cannot offer the same convenience as e.g. Pandas, but the flip-side
+//! is that Rust can verify ahead-of-time that your program is typesafe. For example, `frames` will
+//! not let you attempt to group by a column that does not exist; or join two columns with
+//! incompatible types.
+//!
+//! In terms of performace, the main benefit is that Rust offers a degree of control that
+//! dynamically-typed languages cannot match. String-handling, in particular, is an
+//! order-of-magnitude faster in Rust.
+//!
+
 #![feature(maybe_uninit)]
 #![recursion_limit = "128"]
 #![cfg_attr(feature = "unstable", feature(test))]
