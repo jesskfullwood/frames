@@ -2,14 +2,14 @@ use column::{ColId, Mask, NamedColumn};
 
 use std::fmt::{Debug, Display};
 
-pub use frunk::hlist::HCons as HConsFrunk;
+pub use frunk::hlist::HCons;
 use frunk::hlist::{HList, HNil};
 pub use frunk::indices::{Here, There};
 
 // This module defines traits and methods on top of the `frunk` HList. For a good intro to HLists, see
 // https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 
-pub type HCons<C, Tail> = HConsFrunk<NamedColumn<C>, Tail>;
+pub type ColCons<C, Tail> = HCons<NamedColumn<C>, Tail>;
 
 // ### HListExt ###
 
@@ -18,12 +18,12 @@ pub trait HListExt: HList {
     fn get_names(&self, names: &mut Vec<&'static str>);
 }
 
-impl<Col, Tail> HListExt for HCons<Col, Tail>
+impl<Col, Tail> HListExt for ColCons<Col, Tail>
 where
     Col: ColId,
     Tail: HListExt,
 {
-    type Product = HConsFrunk<Option<Col::Output>, Tail::Product>;
+    type Product = HCons<Option<Col::Output>, Tail::Product>;
     fn get_names(&self, names: &mut Vec<&'static str>) {
         names.push(Col::NAME);
         self.tail.get_names(names);
@@ -43,28 +43,28 @@ pub trait HListClonable: HList {
     fn filter_mask(&self, mask: &Mask) -> Self;
 }
 
-impl<Col, Tail> HListClonable for HCons<Col, Tail>
+impl<Col, Tail> HListClonable for ColCons<Col, Tail>
 where
     Col: ColId,
     Col::Output: Clone,
     Tail: HListClonable,
 {
     fn copy_locs(&self, locs: &[usize]) -> Self {
-        HCons {
+        ColCons {
             head: NamedColumn::new(self.head.copy_locs(locs)),
             tail: self.tail.copy_locs(locs),
         }
     }
 
     fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Self {
-        HCons {
+        ColCons {
             head: NamedColumn::new(self.head.copy_locs_opt(locs)),
             tail: self.tail.copy_locs_opt(locs),
         }
     }
 
     fn filter_mask(&self, mask: &Mask) -> Self {
-        HCons {
+        ColCons {
             head: NamedColumn::new(self.head.filter_mask(mask)),
             tail: self.tail.filter_mask(mask),
         }
@@ -92,13 +92,13 @@ pub trait Appender<T> {
     fn append(self, c: T) -> Self::FromRoot;
 }
 
-impl<T, Head, Tail> Appender<T> for HConsFrunk<Head, Tail>
+impl<T, Head, Tail> Appender<T> for HCons<Head, Tail>
 where
     Tail: Appender<T>,
 {
-    type FromRoot = HConsFrunk<Head, Tail::FromRoot>;
+    type FromRoot = HCons<Head, Tail::FromRoot>;
     fn append(self, c: T) -> Self::FromRoot {
-        HConsFrunk {
+        HCons {
             head: self.head,
             tail: self.tail.append(c),
         }
@@ -106,9 +106,9 @@ where
 }
 
 impl<T> Appender<T> for HNil {
-    type FromRoot = HConsFrunk<T, HNil>;
+    type FromRoot = HCons<T, HNil>;
     fn append(self, c: T) -> Self::FromRoot {
-        HConsFrunk {
+        HCons {
             head: c,
             tail: self,
         }
@@ -129,14 +129,14 @@ impl<C: HList> Concat<C> for HNil {
     }
 }
 
-impl<Head, Tail, C> Concat<C> for HCons<Head, Tail>
+impl<Head, Tail, C> Concat<C> for ColCons<Head, Tail>
 where
     Head: ColId,
     Tail: Concat<C>,
 {
-    type Combined = HCons<Head, <Tail as Concat<C>>::Combined>;
+    type Combined = ColCons<Head, <Tail as Concat<C>>::Combined>;
     fn concat(self, other: C) -> Self::Combined {
-        HCons {
+        ColCons {
             head: self.head,
             tail: self.tail.concat(other),
         }
@@ -149,7 +149,7 @@ pub trait Replacer<Target: ColId, Index> {
     fn replace(&mut self, newcol: NamedColumn<Target>);
 }
 
-impl<Col, Tail> Replacer<Col, Here> for HCons<Col, Tail>
+impl<Col, Tail> Replacer<Col, Here> for ColCons<Col, Tail>
 where
     Col: ColId,
     Tail: HList,
@@ -159,7 +159,7 @@ where
     }
 }
 
-impl<Col, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for HCons<Col, Tail>
+impl<Col, Tail, FromTail, TailIndex> Replacer<FromTail, There<TailIndex>> for ColCons<Col, Tail>
 where
     Col: ColId,
     FromTail: ColId,
@@ -183,18 +183,18 @@ pub trait Mapper<Target: ColId, NewCol: ColId, Index> {
         F: Fn(&Target::Output) -> <NewCol as ColId>::Output;
 }
 
-impl<Head, Tail, NewCol> Mapper<Head, NewCol, Here> for HCons<Head, Tail>
+impl<Head, Tail, NewCol> Mapper<Head, NewCol, Here> for ColCons<Head, Tail>
 where
     Head: ColId,
     NewCol: ColId,
     Tail: HList,
 {
-    type Mapped = HCons<NewCol, Tail>;
+    type Mapped = ColCons<NewCol, Tail>;
     fn map_replace_all<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(Option<&Head::Output>) -> Option<<NewCol as ColId>::Output>,
     {
-        HCons {
+        ColCons {
             head: NamedColumn::new(self.head.map_null(func)),
             tail: self.tail,
         }
@@ -204,7 +204,7 @@ where
     where
         F: Fn(&Head::Output) -> <NewCol as ColId>::Output,
     {
-        HCons {
+        ColCons {
             head: NamedColumn::new(self.head.map(func)),
             tail: self.tail,
         }
@@ -212,20 +212,20 @@ where
 }
 
 impl<Col, Tail, NewCol, FromTail, TailIndex> Mapper<FromTail, NewCol, There<TailIndex>>
-    for HCons<Col, Tail>
+    for ColCons<Col, Tail>
 where
     Col: ColId,
     FromTail: ColId,
     NewCol: ColId,
     Tail: HList + Mapper<FromTail, NewCol, TailIndex>,
 {
-    type Mapped = HCons<Col, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
+    type Mapped = ColCons<Col, <Tail as Mapper<FromTail, NewCol, TailIndex>>::Mapped>;
 
     fn map_replace_all<F>(self, func: F) -> Self::Mapped
     where
         F: Fn(Option<&FromTail::Output>) -> Option<<NewCol as ColId>::Output>,
     {
-        HCons {
+        ColCons {
             head: self.head,
             tail: self.tail.map_replace_all(func),
         }
@@ -235,7 +235,7 @@ where
     where
         F: Fn(&FromTail::Output) -> <NewCol as ColId>::Output,
     {
-        HCons {
+        ColCons {
             head: self.head,
             tail: self.tail.map_replace(func),
         }
@@ -248,7 +248,7 @@ pub trait Stringify {
     fn stringify(&self) -> Vec<String>;
 }
 
-impl<Head, Tail> Stringify for HConsFrunk<Head, Tail>
+impl<Head, Tail> Stringify for HCons<Head, Tail>
 where
     Head: Debug,
     Tail: Stringify,
@@ -273,7 +273,7 @@ pub trait RowHList<'a> {
     fn get_row(&'a self, index: usize) -> Self::ProductOptRef;
 }
 
-impl<'a, Head, Tail> RowHList<'a> for HCons<Head, Tail>
+impl<'a, Head, Tail> RowHList<'a> for ColCons<Head, Tail>
 where
     Head: ColId,
     Head::Output: 'a,
@@ -281,10 +281,10 @@ where
 {
     // TODO this could be tidied up a lot with GATs:
     // https://github.com/rust-lang/rust/issues/44265
-    type ProductOptRef = HConsFrunk<Option<&'a Head::Output>, Tail::ProductOptRef>;
+    type ProductOptRef = HCons<Option<&'a Head::Output>, Tail::ProductOptRef>;
     fn get_row(&'a self, index: usize) -> Self::ProductOptRef {
         // NOTE: assumes the provided index is valid. This should be checked by the parent frame
-        HConsFrunk {
+        HCons {
             head: self.head.get(index).unwrap(),
             tail: self.tail.get_row(index),
         }
@@ -312,9 +312,9 @@ mod tests {
 
     #[test]
     fn test_stringify() {
-        let cons = HConsFrunk {
+        let cons = HCons {
             head: 10,
-            tail: HConsFrunk {
+            tail: HCons {
                 head: "hello",
                 tail: HNil,
             },

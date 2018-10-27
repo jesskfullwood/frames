@@ -1,6 +1,6 @@
 use frame::Frame;
 use frunk::HNil;
-use hlist::{HCons, HConsFrunk, Transformer};
+use hlist::{ColCons, HCons, Transformer};
 
 pub type Frame0 = Frame<HNil>;
 
@@ -58,28 +58,28 @@ macro_rules! frame_def {
 
 macro_rules! cons {
     ($typ: ident) => {
-        HCons<$typ, HNil>
+        ColCons<$typ, HNil>
     };
     ($typ_front:ident $($typs:ident)+) => {
-        HCons<$typ_front, cons!($($typs)+)>
+        ColCons<$typ_front, cons!($($typs)+)>
     }
 }
 
 macro_rules! cons_frunk {
     ($typ: ident) => {
-        HConsFrunk<$typ, HNil>
+        HCons<$typ, HNil>
     };
     ($typ_front:ident $($typs:ident)+) => {
-        HConsFrunk<$typ_front, cons_frunk!($($typs)+)>
+        HCons<$typ_front, cons_frunk!($($typs)+)>
     }
 }
 
 macro_rules! hlist_structure {
     ($typ: ident) => {
-        HConsFrunk { head: $typ, tail: HNil }
+        HCons { head: $typ, tail: HNil }
     };
     ($typ_front:ident $($typs:ident)+) => {
-        HConsFrunk { head: $typ_front, tail: hlist_structure!($($typs)+) }
+        HCons { head: $typ_front, tail: hlist_structure!($($typs)+) }
     }
 }
 

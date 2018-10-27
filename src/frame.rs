@@ -3,8 +3,8 @@ pub use frunk::hlist::{HList, HNil, Plucker, Selector};
 use column::{ColId, Column, IndexVec, Mask, NamedColumn};
 pub use frame_typedef::*;
 use hlist::{
-    Appender, Concat, HCons, HListClonable, HListExt, Mapper, Replacer, RowHList, Stringify,
-    Transformer,
+    Appender, ColCons, Concat, HListClonable, HListExt, Insertable, Mapper, Replacer, RowHList,
+    Stringify, Transformer,
 };
 use id;
 use io;
@@ -45,7 +45,7 @@ impl Frame<HNil> {
         let col = data.into();
         Frame {
             len: col.len(),
-            hlist: HCons {
+            hlist: ColCons {
                 head: col,
                 tail: HNil,
             },
@@ -456,7 +456,7 @@ where
         })
     }
 
-    pub fn groupby<Col, Index>(self, col: Col) -> GroupBy<H, HCons<Col, HNil>>
+    pub fn groupby<Col, Index>(self, col: Col) -> GroupBy<H, ColCons<Col, HNil>>
     where
         Col: ColId,
         Col::Output: Eq + Clone + Ord,
@@ -486,7 +486,7 @@ where
     // }
 }
 
-impl<Col: ColId, Tail: HList> Frame<HCons<Col, Tail>> {
+impl<Col: ColId, Tail: HList> Frame<ColCons<Col, Tail>> {
     #[inline(always)]
     pub fn pop(self) -> (NamedColumn<Col>, Frame<Tail>) {
         let tail = Frame {
