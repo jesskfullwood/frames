@@ -229,7 +229,7 @@ mod tests {
 3,2,words
 4,1,here
 "#;
-        let frame: Frame3<IntT, FloatT, StringT> = read_string(csv)?;
+        let frame: Frame3<I64, F64, StrBuf> = read_string(csv)?;
         assert_eq!(frame, expect);
         Ok(())
     }
@@ -245,7 +245,7 @@ mod tests {
 4,1,here
 "#;
         let cur = Cursor::new(csv);
-        let frame: Frame3<IntT, FloatT, StringT> =
+        let frame: Frame3<I64, F64, StrBuf> =
             read_serde::<(Option<i64>, Option<f64>, Option<String>), _, _>(cur)?;
         assert_eq!(frame, expect);
         Ok(())

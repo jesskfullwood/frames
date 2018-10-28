@@ -1,3 +1,4 @@
+
 // TODO this only works for single idents, ie "my string column" is not allowed
 #[macro_export]
 macro_rules! define_col {
@@ -5,13 +6,22 @@ macro_rules! define_col {
         define_col!($tyname, $typ, $tyname);
     };
     ($tyname:ident, $typ:ty, $name:ident) => {
-        // This type is just a marker and cannot be instantiated
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
         pub struct $tyname;
         impl $crate::column::ColId for $tyname {
             const NAME: &'static str = stringify!($name);
             type Output = $typ;
         }
+    };
+}
+
+#[macro_export]
+macro_rules! define_frame {
+    // ($tyname:ident, $typ:ty) => {
+    //     define_frame!($tyname, $typ, $tyname);
+    // };
+    ($tyname:ident, $typ:ty, $name:ident) => {
+        type MyFrame = Frame3<Name, Age, Favourite
     };
 }
 

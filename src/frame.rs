@@ -169,13 +169,13 @@ impl<H: HList> Frame<H> {
     }
 
     // TODO is this function useful?
-    /// Replace an existing column with a new column of the same type.
+    /// Swap an existing column with a new column of the same type.
     /// This operation does not change the type of the frame.
     ///
     /// # Panics
     ///
     /// panics if the replacement column has a different number of rows from the existing frame
-    pub fn replace<Col: ColId, Index>(&mut self, new_col: NamedColumn<Col>)
+    pub fn swap<Col: ColId, Index>(&mut self, new_col: NamedColumn<Col>)
     where
         H: Replacer<Col, Index>,
     {
@@ -189,24 +189,10 @@ impl<H: HList> Frame<H> {
         self.hlist.replace(new_col)
     }
 
-    pub fn map_replace_all<Col, NewCol, Index, F>(
-        self,
-        _col: Col,
-        _newcol: NewCol,
-        func: F,
-    ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
-    where
-        Col: ColId,
-        NewCol: ColId,
-        H: Mapper<Col, NewCol, Index>,
-        F: Fn(Option<&Col::Output>) -> Option<NewCol::Output>,
-    {
-        Frame {
-            hlist: self.hlist.map_replace_all(func),
-            len: self.len,
-        }
-    }
-
+    /// Apply a function to a given column and replace column with the result.
+    /// `null` entries are unchanged.
+    ///
+    /// Consumes current frame.
     pub fn map_replace<Col, NewCol, Index, F>(
         self,
         _col: Col,
@@ -225,10 +211,36 @@ impl<H: HList> Frame<H> {
         }
     }
 
+    /// Apply a function to a given column (including `null`s)
+    /// and replace column with the result.
+    ///
+    /// Consumes current frame.
+    pub fn map_replace_all<Col, NewCol, Index, F>(
+        self,
+        _col: Col,
+        _newcol: NewCol,
+        func: F,
+    ) -> Frame<<H as Mapper<Col, NewCol, Index>>::Mapped>
+    where
+        Col: ColId,
+        NewCol: ColId,
+        H: Mapper<Col, NewCol, Index>,
+        F: Fn(Option<&Col::Output>) -> Option<NewCol::Output>,
+    {
+        Frame {
+            hlist: self.hlist.map_replace_all(func),
+            len: self.len,
+        }
+    }
+
+    /// Apply a function to a given column and append the result to
+    /// the frame. `null`s are unchanged.
+    ///
+    /// Consumes current frame.
     pub fn map_insert<Col, NewCol, Index, F>(
         self,
         col_name: Col,
-        newcol_name: NewCol,
+        _newcol_name: NewCol,
         func: F,
     ) -> Frame<H::FromRoot>
     where
@@ -246,6 +258,7 @@ impl<H: HList> Frame<H> {
         self.add(newcol).unwrap() // safe to unwrap as we know it is the same length
     }
 
+    /// Modify the entries of a column in-place. `null`s are unchanged.
     pub fn map_in_place<Col, Index, F>(&mut self, col: Col, f: F)
     where
         H: Selector<NamedColumn<Col>, Index>,
@@ -256,6 +269,9 @@ impl<H: HList> Frame<H> {
         col.iter_mut().for_each(|v| f(v))
     }
 
+    /// Extract a column from the frame.
+    ///
+    /// Consumes the current frame and returns the column and a new frame.
     #[inline(always)]
     #[allow(unused_variables)]
     pub fn extract<Col, Index>(
@@ -280,10 +296,13 @@ impl<H: HList> Frame<H> {
         )
     }
 
-    pub fn concat_front<C: HList + Concat<H>>(self, other: Frame<C>) -> Result<Frame<C::Combined>> {
+    fn concat_front<C: HList + Concat<H>>(self, other: Frame<C>) -> Result<Frame<C::Combined>> {
         other.concat(self)
     }
 
+    /// Concatenate another frame to the end of the current frame.
+    ///
+    /// Consumes both frames and fails if the lengths do not match.
     pub fn concat<C: HList>(self, other: Frame<C>) -> Result<Frame<H::Combined>>
     where
         H: Concat<C>,
@@ -399,7 +418,7 @@ where
                     .map(|(left, right)| left.or(right).cloned()),
             ))
         };
-        leftframe.replace(joined);
+        leftframe.swap(joined);
         leftframe.concat_front(rightframe).unwrap()
     }
 
@@ -464,12 +483,12 @@ where
     // TODO reshape
     // pub fn reshape<Shaped>(&self) -> Frame<Shaped>
     //     where Shaped:
-    // {
-
-    // }
 }
 
 impl<Col: ColId, Tail: HList> Frame<ColCons<Col, Tail>> {
+    /// Extract the last column of the frame.
+    ///
+    /// Consumes the current frame.
     #[inline(always)]
     pub fn pop(self) -> (NamedColumn<Col>, Frame<Tail>) {
         let tail = Frame {
@@ -484,7 +503,7 @@ impl<'a, H> Frame<H>
 where
     H: HList + RowHList<'a>,
 {
-    pub fn get_row_hlist(&'a self, index: usize) -> Option<<H as RowHList>::ProductOptRef> {
+    fn get_row_hlist(&'a self, index: usize) -> Option<<H as RowHList>::ProductOptRef> {
         // NOTE: This check is done here so it doesn't have to be done by the inner HList
         if index >= self.nrows() {
             return None;
@@ -506,6 +525,7 @@ where
     H: HList + RowHList<'a>,
     <H as RowHList<'a>>::ProductOptRef: Transformer,
 {
+    /// Fetch a row of the frame by index
     pub fn get_row(
         &'a self,
         index: usize,
@@ -513,6 +533,7 @@ where
         self.get_row_hlist(index).map(H::ProductOptRef::flatten)
     }
 
+    /// Iteratre over the rows of the frame
     pub fn iter_rows(
         &'a self,
     ) -> impl Iterator<Item = <<H as RowHList>::ProductOptRef as Transformer>::Flattened> {
@@ -710,13 +731,13 @@ where
 pub(crate) mod test_fixtures {
     use super::*;
 
-    define_col!(IntT, i64, int_col);
-    define_col!(StringT, String, string_col);
-    define_col!(StrT, &'static str, str_col);
-    define_col!(FloatT, f64, float_col);
-    define_col!(BoolT, bool, bool_col);
+    define_col!(I64, i64, int_col);
+    define_col!(F64, f64, float_col);
+    define_col!(Bool, bool);
+    define_col!(StrBuf, String, string_col);
+    define_col!(Str, &'static str);
 
-    pub(crate) type Data3 = Frame3<IntT, FloatT, StringT>;
+    pub(crate) type Data3 = Frame3<I64, F64, StrBuf>;
 
     pub(crate) fn quickframe() -> Data3 {
         Frame::with(col![1, 2, NA, 3, 4])
@@ -742,22 +763,22 @@ pub(crate) mod tests {
         assert_eq!(f.ncols(), 3);
         assert_eq!(f.len, 1);
         {
-            let f = f.get(FloatT);
+            let f = f.get(F64);
             assert_eq!(f, &[1.23f64])
         }
-        let (v, f) = f.extract(IntT);
+        let (v, f) = f.extract(I64);
         assert_eq!(v, &[10]);
         let (v, f) = f.pop();
         assert_eq!(v, &[1.23]);
-        let (v, _) = f.extract(StringT);
+        let (v, _) = f.extract(StrBuf);
         assert_eq!(v, &[String::from("Hello")]);
         Ok(())
     }
 
     #[test]
     fn test_double_insert() -> Result<()> {
-        let f: Frame2<IntT, IntT> = Frame::with(col![10]).add(col![101])?;
-        let (v, _) = f.extract::<IntT, There<Here>>(IntT);
+        let f: Frame2<I64, I64> = Frame::with(col![10]).add(col![101])?;
+        let (v, _) = f.extract::<I64, There<Here>>(I64);
         assert_eq!(v, &[101]);
         Ok(())
     }
@@ -784,15 +805,15 @@ pub(crate) mod tests {
         }
 
         {
-            let f1: Frame2<IntT, FloatT> = Frame::new().add(col![10i64])?.add(col![1.23f64])?;
-            let f2: Frame1<StringT> = Frame::new().add(vec![Some(String::from("Hello"))])?;
-            let _f3: Frame3<IntT, FloatT, StringT> = f1.concat(f2)?;
+            let f1: Frame2<I64, F64> = Frame::new().add(col![10i64])?.add(col![1.23f64])?;
+            let f2: Frame1<StrBuf> = Frame::new().add(vec![Some(String::from("Hello"))])?;
+            let _f3: Frame3<I64, F64, StrBuf> = f1.concat(f2)?;
         }
 
         {
             let f1 = Frame::new();
-            let f2 = Frame::new().add::<IntT, _>(col![1, 2, 3])?;
-            let f3 = Frame::new().add::<FloatT, _>(col![1., 2.])?;
+            let f2 = Frame::new().add::<I64, _>(col![1, 2, 3])?;
+            let f3 = Frame::new().add::<F64, _>(col![1., 2.])?;
             let f4: Frame1<_> = f1.concat(f2)?;
             assert!(f4.concat(f3).is_err()) // mismatched types
         }
@@ -804,11 +825,11 @@ pub(crate) mod tests {
     fn test_mask() -> Result<()> {
         let f = quickframe();
         // TODO document - keep if true or discard-if-true? At moment it's keep-if-true
-        let mask = f.get(IntT).mask(|&v| v > 2);
+        let mask = f.get(I64).mask(|&v| v > 2);
         let f2 = f.filter_mask(&mask)?;
-        assert_eq!(f2.get(IntT), &[3, 4]);
+        assert_eq!(f2.get(I64), &[3, 4]);
         // Fails with incorrect len
-        let mask2 = f2.get(IntT).mask(|&v| v > 2);
+        let mask2 = f2.get(I64).mask(|&v| v > 2);
         assert!(f.filter_mask(&mask2).is_err());
         Ok(())
     }
@@ -817,27 +838,27 @@ pub(crate) mod tests {
     fn test_filter() {
         // basically same as above
         let f = quickframe();
-        let f2 = f.filter(IntT, |&v| v > 2);
+        let f2 = f.filter(I64, |&v| v > 2);
         assert_eq!(f2.nrows(), 2);
-        assert_eq!(f2.get(IntT), &[3, 4]);
-        assert_eq!(f2.get(FloatT), &[2., 1.]);
+        assert_eq!(f2.get(I64), &[3, 4]);
+        assert_eq!(f2.get(F64), &[2., 1.]);
     }
 
     #[test]
     fn test_groupby() -> Result<()> {
-        let f: Frame3<IntT, FloatT, BoolT> = Frame::with(col![1, 3, 2, 3, 4, 2])
+        let f: Frame3<I64, F64, Bool> = Frame::with(col![1, 3, 2, 3, 4, 2])
             .add(col![1., 2., 1., 1., 1., 1.])?
             .add(col![true, false, true, false, true, false])?;
         define_col!(FloatSum, f64);
         define_col!(TrueCt, u32);
         let g = f
-            .groupby(IntT)
-            .acc(FloatT, FloatSum, |slice| slice.iter().map(|v| *v).sum())
-            .acc(BoolT, TrueCt, |slice| {
+            .groupby(I64)
+            .acc(F64, FloatSum, |slice| slice.iter().map(|v| *v).sum())
+            .acc(Bool, TrueCt, |slice| {
                 slice.iter().map(|&&v| if v { 1 } else { 0 }).sum()
             })
             .done();
-        assert_eq!(g.get(IntT), &[1, 3, 2, 4]);
+        assert_eq!(g.get(I64), &[1, 3, 2, 4]);
         assert_eq!(g.get(FloatSum), &[1., 3., 2., 1.]);
         assert_eq!(g.get(TrueCt), &[1, 0, 1, 1]);
         Ok(())
@@ -846,71 +867,71 @@ pub(crate) mod tests {
     #[test]
     fn test_map_replace() {
         let f = quickframe();
-        let f2 = f.map_replace(FloatT, FloatT, |&v| v * v);
-        assert_eq!(f2.get(FloatT), &col![25., NA, 9., 4., 1.]);
+        let f2 = f.map_replace(F64, F64, |&v| v * v);
+        assert_eq!(f2.get(F64), &col![25., NA, 9., 4., 1.]);
     }
 
     #[test]
     fn test_inner_join() -> Result<()> {
         // TODO parse a text string once reading csvs is implemented
         let f1 = quickframe();
-        let f2: Frame2<IntT, BoolT> = Frame::new()
+        let f2: Frame2<I64, Bool> = Frame::new()
             .add(col![3, NA, 2, 2])?
             .add(col![NA, false, true, false])?;
-        let f3 = f1.inner_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &[2, 2, 3]);
-        assert_eq!(f3.get(BoolT), &col![true, false, NA]);
+        let f3 = f1.inner_join(&f2, I64, I64);
+        assert_eq!(f3.get(I64), &[2, 2, 3]);
+        assert_eq!(f3.get(Bool), &col![true, false, NA]);
         Ok(())
     }
 
     #[test]
     fn test_inner_join_with_duplicates() {
         let f1 = Frame::with((0..50_000).map(|v| v / 2).map(Some));
-        let joined = f1.inner_join(&f1, IntT, IntT);
+        let joined = f1.inner_join(&f1, I64, I64);
         assert_eq!(joined.nrows(), 100_000);
     }
 
     #[test]
     fn test_left_join() -> Result<()> {
-        let f1: Frame2<IntT, FloatT> = Frame::new()
+        let f1: Frame2<I64, F64> = Frame::new()
             .add(col![3, NA, 2, 2])?
             .add(col![NA, 5., 4., 3.])?;
 
-        let f2: Frame2<IntT, BoolT> = Frame::new()
+        let f2: Frame2<I64, Bool> = Frame::new()
             .add(col![2, 2, NA, 1, 3])?
             .add(col![NA, false, true, false, NA])?;
 
-        let f3 = f1.left_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![3, NA, 2, 2, 2, 2]);
-        assert_eq!(f3.get(BoolT), &col![NA, NA, NA, false, NA, false]);
+        let f3 = f1.left_join(&f2, I64, I64);
+        assert_eq!(f3.get(I64), &col![3, NA, 2, 2, 2, 2]);
+        assert_eq!(f3.get(Bool), &col![NA, NA, NA, false, NA, false]);
         Ok(())
     }
 
     #[test]
     fn test_outer_join_nones() -> Result<()> {
-        let f1: Frame1<IntT> = Frame::new().add(col![NA])?;
-        let f2: Frame1<IntT> = Frame::new().add(col![NA, NA])?;
-        let f3 = f1.outer_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![NA, NA, NA]);
+        let f1: Frame1<I64> = Frame::new().add(col![NA])?;
+        let f2: Frame1<I64> = Frame::new().add(col![NA, NA])?;
+        let f3 = f1.outer_join(&f2, I64, I64);
+        assert_eq!(f3.get(I64), &col![NA, NA, NA]);
         Ok(())
     }
 
     #[test]
     fn test_outer_join() -> Result<()> {
-        let f1: Frame2<IntT, FloatT> = Frame::new()
+        let f1: Frame2<I64, F64> = Frame::new()
             .add(col![3, NA, 2, NA])?
             .add(col![1., 2., NA, 3.])?;
-        let f2: Frame2<IntT, BoolT> = Frame::new()
+        let f2: Frame2<I64, Bool> = Frame::new()
             .add(col![NA, 3, 3, 2, 5])?
             .add(col![true, NA, false, true, NA])?;
-        let f3 = f1.outer_join(&f2, IntT, IntT);
-        assert_eq!(f3.get(IntT), &col![3, 3, NA, 2, NA, NA, 5]);
+        let f3 = f1.outer_join(&f2, I64, I64);
+        assert_eq!(f3.get(I64), &col![3, 3, NA, 2, NA, NA, 5]);
         Ok(())
     }
 
     #[test]
     fn test_iter_rows() {
-        let f: Frame3<IntT, FloatT, BoolT> = Frame::new()
+        let f: Frame3<I64, F64, Bool> = Frame::new()
             .add(col![1, 2, NA])
             .unwrap()
             .add(col![NA, 5., 4.])
@@ -938,7 +959,7 @@ pub(crate) mod tests {
     #[test]
     fn test_frame_macro() {
         let _empty: Data3 = frame![];
-        let f: Frame3<IntT, FloatT, StrT> =
+        let f: Frame3<I64, F64, Str> =
             frame![[NA, 1.0, "test"], [2, NA, "test2"], [3, 3.0, NA]];
         // assert_eq!(f.get_row[0], 10);
     }
@@ -946,8 +967,8 @@ pub(crate) mod tests {
     #[test]
     fn test_frame_col_macro() {
         let _empty: Data3 = frame_col![];
-        let f: Frame2<IntT, FloatT> = frame_col![[1, 2, 3, NA, 4], [1., 2., 3., NA, 4.]];
-        assert_eq!(f.get(IntT), &col![1, 2, 3, NA, 4]);
+        let f: Frame2<I64, F64> = frame_col![[1, 2, 3, NA, 4], [1., 2., 3., NA, 4.]];
+        assert_eq!(f.get(I64), &col![1, 2, 3, NA, 4]);
     }
 
     #[test]
@@ -956,16 +977,16 @@ pub(crate) mod tests {
         let f2 = f.clone();
         let f3 = f.clone();
         ::std::thread::spawn(move || {
-            let c = f2.get(IntT);
+            let c = f2.get(I64);
             c.build_index();
         });
-        f.inner_join(&f3, IntT, IntT);
+        f.inner_join(&f3, I64, I64);
     }
 
     #[test]
     fn test_get_row() {
         use frunk;
-        let f: Frame2<IntT, FloatT> = frame_col![[1, 2], [2., 3.]];
+        let f: Frame2<I64, F64> = frame_col![[1, 2], [2., 3.]];
         {
             let row = f.get_row_hlist(0).unwrap();
             assert_eq!(
@@ -989,23 +1010,23 @@ pub(crate) mod tests {
     fn test_replace_row() {
         let mut f = quickframe();
         // TODO This is very clunky. Making NamedColumns is too confusing and magic
-        let newcol: NamedColumn<FloatT> = NamedColumn::new(col![5., NA, 3., 2., 0.]);
-        f.replace(newcol.clone());
-        assert_eq!(f.get(FloatT), &newcol);
+        let newcol: NamedColumn<F64> = NamedColumn::new(col![5., NA, 3., 2., 0.]);
+        f.swap(newcol.clone());
+        assert_eq!(f.get(F64), &newcol);
     }
 
     #[test]
     #[should_panic]
     fn test_replace_row_wrong_length() {
         let mut f = quickframe();
-        let newcol: NamedColumn<FloatT> = NamedColumn::new(col![5., NA, 3., 2., 1., 0.]);
-        f.replace(newcol);
+        let newcol: NamedColumn<F64> = NamedColumn::new(col![5., NA, 3., 2., 1., 0.]);
+        f.swap(newcol);
     }
 
     // TODO
     // #[test]
     // fn test_display() {
-    //     let f: Frame1<IntT> = frame![[1, 2, 3, NA, 4]];
+    //     let f: Frame1<I64> = frame![[1, 2, 3, NA, 4]];
     //     format!("{}", f);
     // }
 
@@ -1013,7 +1034,7 @@ pub(crate) mod tests {
     // #[test]
     // fn test_ad_hoc_iter() {
     //     let f = quickframe();
-    //     let iter = f.iter_rows::<(IntT, FloatT, IntT)>();
+    //     let iter = f.iter_rows::<(I64, F64, I64)>();
     //     assert_eq!(iter.next(), Some((Some(&1), Some(&5.), Some("this,'\"".to_string()))));
     // }
 }
