@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate frames;
 extern crate tempdir;
 
@@ -14,16 +13,15 @@ define_col!(Float, f64, floats);
 define_col!(Bool, bool, bools);
 define_col!(Strings, String, strings);
 
-const SIZE: usize = 10_000_000;
-
 fn main() -> Result<()> {
-    // Create frame
+    let size = 10_000_000;
 
+    // Create frame
     let t = time::Instant::now();
-    let df1 = Frame::with::<Int, _>((0..SIZE).map(Some))
-        .add::<Float, _>((0..SIZE).map(|v| v as f64 + 0.5).map(Some))?
-        .add::<Bool, _>((0..SIZE).map(|v| if v % 2 == 0 { Some(v % 4 == 0) } else { None }))?
-        .add::<Strings, _>((0..SIZE).map(|v| format!("number {}", v)).map(Some))?;
+    let df1 = Frame::with::<Int, _>((0..size).map(Some))
+        .add::<Float, _>((0..size).map(|v| v as f64 + 0.5).map(Some))?
+        .add::<Bool, _>((0..size).map(|v| if v % 2 == 0 { Some(v % 4 == 0) } else { None }))?
+        .add::<Strings, _>((0..size).map(|v| format!("number {}", v)).map(Some))?;
     let t = elapsed_secs(t);
     println!(
         "Created frame with {} columns and {} rows in {}s",
@@ -34,7 +32,7 @@ fn main() -> Result<()> {
 
     let t = time::Instant::now();
     let mut vec = Vec::with_capacity(100_000);
-    for x in 0..SIZE {
+    for x in 0..size {
         let elem = (
             Some(x),
             Some(x as f64 + 0.5),
@@ -48,10 +46,10 @@ fn main() -> Result<()> {
 
     // Clone many
 
-    let t = time::Instant::now();
-    let clones: Vec<_> = (0..10_000_000).map(|_| df1.clone()).collect();
-    let t = elapsed_secs(t);
-    println!("Created {} clones in {}s", clones.len(), t);
+    // let t = time::Instant::now();
+    // let clones: Vec<_> = (0..10_000_000).map(|_| df1.clone()).collect();
+    // let t = elapsed_secs(t);
+    // println!("Created {} clones in {}s", clones.len(), t);
 
     // Describe column
 
@@ -71,7 +69,7 @@ fn main() -> Result<()> {
         |acc, (_, flt, _, _)| if let Some(v) = flt { acc + v } else { acc },
     );
     assert_eq!(sum, 50000000000000.0);
-    println!("Iterated rows in in {}s", elapsed_secs(t));
+    println!("Iterated rows in {}s", elapsed_secs(t));
 
     let t = time::Instant::now();
     let sum = vec.iter().fold(
@@ -105,7 +103,7 @@ fn main() -> Result<()> {
         "Wrote CSV to {} in {}s ({:.0} lines/sec)",
         path.display(),
         tw,
-        SIZE as f64 / tw
+        size as f64 / tw
     );
 
     // Read from CSV
@@ -118,7 +116,7 @@ fn main() -> Result<()> {
         "Read CSV from {} in {}s ({:.0} lines/sec)",
         path.display(),
         tr,
-        SIZE as f64 / tr
+        size as f64 / tr
     );
 
     Ok(())

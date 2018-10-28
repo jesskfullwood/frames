@@ -740,21 +740,6 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
     }
 }
 
-// TODO document usage
-#[macro_export]
-macro_rules! col {
-    ($($vals:tt),* $(,)*) => {
-        {
-            let mut v = Vec::new();
-            $(
-                let val = wrap_val!($vals);
-                v.push(val);
-            )*
-            Column::from(v)
-        }
-    }
-}
-
 pub struct Mask {
     mask: Column<bool>,
     true_count: usize,

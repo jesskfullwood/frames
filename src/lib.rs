@@ -35,6 +35,10 @@ extern crate num;
 extern crate ordered_float;
 extern crate serde;
 extern crate smallvec;
+#[macro_use]
+extern crate frames_derive;
+
+pub use frames_derive::*;
 
 #[doc(inline)]
 pub use column::{ColId, Column, NamedColumn};

@@ -70,6 +70,7 @@ fn test_derive() {
         },
     ];
 
+    // TODO make this work
     // let peopleframe = PersonFrame::from_rows(people);
 
 }

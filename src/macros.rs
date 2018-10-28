@@ -34,23 +34,18 @@ macro_rules! frame {
         {
             let mut f = $crate::Frame::empty();
             $(
-                let row = ($(wrap_val!($x),)*);
+                let row = ($(frame!(wrap $x),)*);
                 f.insert_row(row);
             )*;
             f
         }
-    }
-}
-
-#[allow(unused_macros)]
-#[macro_use]
-macro_rules! wrap_val {
-    (NA) => {
+    };
+    (wrap NA) => {
         None
     };
-    ($val:tt) => {
+    (wrap $val:tt) => {
         Some($val)
-    };
+    }
 }
 
 #[macro_export]
@@ -67,5 +62,26 @@ macro_rules! frame_col {
             )*;
             f
         }
+    }
+}
+
+// TODO document usage
+#[macro_export]
+macro_rules! col {
+    ($($vals:tt),* $(,)*) => {
+        {
+            let mut v = Vec::new();
+            $(
+                let val = col!(wrap $vals);
+                v.push(val);
+            )*
+                Column::from(v)
+        }
+    };
+    (wrap NA) => {
+        None
+    };
+    (wrap $val:tt) => {
+        Some($val)
     }
 }
