@@ -989,16 +989,14 @@ pub(crate) mod tests {
         let f: Frame2<I64, F64> = frame_col![[1, 2], [2., 3.]];
         {
             let row = f.get_row_hlist(0).unwrap();
-            assert_eq!(
-                row,
-                frunk::HCons {
-                    head: Some(&1),
-                    tail: frunk::HCons {
-                        head: Some(&2.),
-                        tail: frunk::HNil
-                    }
+            let expect = frunk::HCons {
+                head: Some(&1),
+                tail: frunk::HCons {
+                    head: Some(&2.),
+                    tail: frunk::HNil
                 }
-            );
+            };
+            assert_eq!(row, expect);
         }
         {
             let row = f.get_row(0).unwrap();
