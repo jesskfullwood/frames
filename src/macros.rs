@@ -57,7 +57,7 @@ macro_rules! frame_col {
         {
             let f = $crate::Frame::new();
             $(
-                let c: $crate::Column<_> = col![$($x,)*];
+                let c: $crate::Array<_> = col![$($x,)*];
                 let f = f.add(c).unwrap();
             )*;
             f
@@ -75,7 +75,7 @@ macro_rules! col {
                 let val = col!(wrap $vals);
                 v.push(val);
             )*
-                Column::from(v)
+                $crate::Array::from(v)
         }
     };
     (wrap NA) => {

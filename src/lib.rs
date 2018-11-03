@@ -41,7 +41,7 @@ extern crate frames_derive;
 pub use frames_derive::*;
 
 #[doc(inline)]
-pub use column::{ColId, Column, NamedColumn};
+pub use column::{ColId, Array, Column};
 #[doc(inline)]
 pub use frame::Frame;
 #[doc(inline)]
@@ -80,9 +80,9 @@ mod benchmarks {
     fn bench_create_frame(b: &mut Bencher) {
         b.iter(|| {
             let f: Frame3<IntT, FloatT, BoolT> = frame![
-                Column::new((0..SIZE).map(Some)),
-                Column::new((0..SIZE).map(|v| v as f64).map(Some)),
-                Column::new((0..SIZE).map(|v| v % 2 == 0).map(Some)),
+                Array::new((0..SIZE).map(Some)),
+                Array::new((0..SIZE).map(|v| v as f64).map(Some)),
+                Array::new((0..SIZE).map(|v| v % 2 == 0).map(Some)),
             ];
             f
         })
@@ -90,7 +90,7 @@ mod benchmarks {
 
     #[bench]
     fn bench_index_column_sequence(b: &mut Bencher) {
-        let mut c = Column::new((0..SIZE).map(Some));
+        let mut c = Array::new((0..SIZE).map(Some));
         b.iter(|| {
             c.build_index();
             c.drop_index();
@@ -101,7 +101,7 @@ mod benchmarks {
     fn bench_index_column_random_with_10_dupes(b: &mut Bencher) {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        let mut c = Column::new((0..SIZE).map(|_| rng.gen_range(0, SIZE / 10)).map(Some));
+        let mut c = Array::new((0..SIZE).map(|_| rng.gen_range(0, SIZE / 10)).map(Some));
         b.iter(|| {
             c.build_index();
             c.drop_index();

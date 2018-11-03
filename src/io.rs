@@ -108,7 +108,7 @@ where
 //     fn write_to_buffer(&self) -> (Vec<u8>, Vec<usize>);
 // }
 
-// impl<T> WriteBuffer for Column<T>
+// impl<T> WriteBuffer for Array<T>
 // where
 //     T: Display,
 // {
@@ -141,7 +141,7 @@ where
 // impl<Col, Tail> WriteToBuffer for ColCons<Col, Tail>
 // where
 //     Col: ColId,
-//     Column<Col::Output>: WriteBuffer,
+//     Array<Col::Output>: WriteBuffer,
 //     Tail: HList + WriteToBuffer,
 // {
 //     fn write_to_buffer(&self) -> Vec<(Vec<u8>, Vec<usize>)> {

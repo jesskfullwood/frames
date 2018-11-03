@@ -1,6 +1,6 @@
 pub use frunk::hlist::{HList, HNil, Plucker, Selector};
 
-use column::{ColId, Column, IndexVec, Mask, NamedColumn};
+use column::{ColId, Array, IndexVec, Mask, Column};
 pub use frame_typedef::*;
 use hlist::{
     Appender, ColCons, Concat, HListClonable, HListExt, Insertable, Mapper, Replacer, RowHList,
@@ -18,7 +18,7 @@ use Result;
 
 // ### Frame ###
 
-/// A strongly-typed data structure containing [NamedColumns](struct.NamedColumn.html)
+/// A strongly-typed data structure containing [Column](struct.Column.html)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     pub(crate) hlist: H,
@@ -40,7 +40,7 @@ impl Frame<HNil> {
     pub fn with<Col, Data>(data: Data) -> Frame1<Col>
     where
         Col: ColId,
-        Data: Into<NamedColumn<Col>>,
+        Data: Into<Column<Col>>,
     {
         let col = data.into();
         Frame {
@@ -110,20 +110,20 @@ impl<H: HList> Frame<H> {
 
     #[allow(unused_variables)]
     /// Get column from specified column ident
-    pub fn get<Col, Index>(&self, col: Col) -> &NamedColumn<Col>
+    pub fn get<Col, Index>(&self, col: Col) -> &Column<Col>
     where
         Col: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         Selector::get(&self.hlist)
     }
 
     #[allow(unused_variables)]
     /// Mutably column from specified column ident
-    fn get_mut<Col, Index>(&mut self, col: Col) -> &mut NamedColumn<Col>
+    fn get_mut<Col, Index>(&mut self, col: Col) -> &mut Column<Col>
     where
         Col: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         // NOTE This function is potentialy unsafe, if swap is called on
         // the mut ref to insert a col with the wrong length
@@ -134,10 +134,10 @@ impl<H: HList> Frame<H> {
     ///
     /// This feels a little less natural to type than `get` but is more convenient
     /// in circumstances where an ident type is not at hand
-    pub fn have<Col, Index>(&self) -> &NamedColumn<Col>
+    pub fn have<Col, Index>(&self) -> &Column<Col>
     where
         Col: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         Selector::get(&self.hlist)
     }
@@ -148,10 +148,10 @@ impl<H: HList> Frame<H> {
     /// The column must have the same number of rows as the existing frame (excepting empty frames).
     pub fn add<Col, Data>(self, col: Data) -> Result<Frame<H::FromRoot>>
     where
-        H: Appender<NamedColumn<Col>>,
+        H: Appender<Column<Col>>,
         H::FromRoot: HList,
         Col: ColId,
-        Data: Into<NamedColumn<Col>>,
+        Data: Into<Column<Col>>,
     {
         let col = col.into();
         if self.hlist.len() != 0 && col.len() != self.nrows() {
@@ -175,7 +175,7 @@ impl<H: HList> Frame<H> {
     /// # Panics
     ///
     /// panics if the replacement column has a different number of rows from the existing frame
-    pub fn swap<Col: ColId, Index>(&mut self, new_col: NamedColumn<Col>)
+    pub fn swap<Col: ColId, Index>(&mut self, new_col: Column<Col>)
     where
         H: Replacer<Col, Index>,
     {
@@ -246,14 +246,14 @@ impl<H: HList> Frame<H> {
     where
         Col: ColId,
         NewCol: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
-        H: Appender<NamedColumn<NewCol>>,
+        H: Selector<Column<Col>, Index>,
+        H: Appender<Column<NewCol>>,
         H::FromRoot: HList,
         F: Fn(&Col::Output) -> NewCol::Output,
     {
-        let newcol: NamedColumn<NewCol> = {
+        let newcol: Column<NewCol> = {
             let col = self.get(col_name);
-            NamedColumn::new(col.map(func))
+            Column::new(col.map(func))
         };
         self.add(newcol).unwrap() // safe to unwrap as we know it is the same length
     }
@@ -261,7 +261,7 @@ impl<H: HList> Frame<H> {
     /// Modify the entries of a column in-place. `null`s are unchanged.
     pub fn map_in_place<Col, Index, F>(&mut self, col: Col, f: F)
     where
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
         Col: ColId,
         F: Fn(&mut Col::Output),
     {
@@ -278,13 +278,13 @@ impl<H: HList> Frame<H> {
         self,
         col: Col,
     ) -> (
-        NamedColumn<Col>,
-        Frame<<H as Plucker<NamedColumn<Col>, Index>>::Remainder>,
+        Column<Col>,
+        Frame<<H as Plucker<Column<Col>, Index>>::Remainder>,
     )
     where
         Col: ColId,
-        H: Plucker<NamedColumn<Col>, Index>,
-        <H as Plucker<NamedColumn<Col>, Index>>::Remainder: HList,
+        H: Plucker<Column<Col>, Index>,
+        <H as Plucker<Column<Col>, Index>>::Remainder: HList,
     {
         let (v, hlist) = self.hlist.pluck();
         (
@@ -336,17 +336,17 @@ where
         other: &Frame<Oth>,
         lcol: LCol,
         rcol: RCol,
-    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<NamedColumn<RCol>, RIx>
-            + Plucker<NamedColumn<RCol>, RIx>
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
             + HListClonable,
-        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<NamedColumn<LCol>, LIx>,
+        H: Selector<Column<LCol>, LIx>,
     {
         let left = self.get(lcol);
         let right = other.get(rcol);
@@ -362,18 +362,18 @@ where
         other: &Frame<Oth>,
         lcol: LCol,
         rcol: RCol,
-    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<NamedColumn<RCol>, RIx>
-            + Plucker<NamedColumn<RCol>, RIx>
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
             + Concat<H>
             + HListClonable,
-        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<NamedColumn<LCol>, LIx>,
+        H: Selector<Column<LCol>, LIx>,
     {
         let left = self.get(lcol);
         let right = other.get(rcol);
@@ -390,18 +390,18 @@ where
         other: &Frame<Oth>,
         lcol: LCol,
         rcol: RCol,
-    ) -> Frame<<<Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
+    ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
         Oth: HList
-            + Selector<NamedColumn<RCol>, RIx>
-            + Plucker<NamedColumn<RCol>, RIx>
+            + Selector<Column<RCol>, RIx>
+            + Plucker<Column<RCol>, RIx>
             + Concat<H>
             + HListClonable,
-        <Oth as Plucker<NamedColumn<RCol>, RIx>>::Remainder: Concat<H> + HList,
+        <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Ord,
         RCol: ColId<Output = LCol::Output>,
-        H: Selector<NamedColumn<LCol>, LIx> + Replacer<LCol, LIx>,
+        H: Selector<Column<LCol>, LIx> + Replacer<LCol, LIx>,
     {
         let left = self.get(lcol);
         let right = other.get(rcol);
@@ -411,7 +411,7 @@ where
         let (rjoined, rightframe) = rightframe.extract(rcol);
         let joined = {
             let ljoined = leftframe.get(lcol);
-            NamedColumn::from(Column::new_null(
+            Column::from(Array::new_null(
                 ljoined
                     .iter_null()
                     .zip(rjoined.iter_null())
@@ -440,7 +440,7 @@ where
     where
         Col: ColId,
         F: Fn(&Col::Output) -> bool,
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         // TODO also add filter2, filter3...
         let mask = self.get(col).mask(func);
@@ -462,7 +462,7 @@ where
     where
         Col: ColId,
         Col::Output: Eq + Clone + Ord,
-        H: Selector<NamedColumn<Col>, Index>,
+        H: Selector<Column<Col>, Index>,
     {
         let (grouping_index, grouped_col) = {
             // lifetimes workaround
@@ -490,7 +490,7 @@ impl<Col: ColId, Tail: HList> Frame<ColCons<Col, Tail>> {
     ///
     /// Consumes the current frame.
     #[inline(always)]
-    pub fn pop(self) -> (NamedColumn<Col>, Frame<Tail>) {
+    pub fn pop(self) -> (Column<Col>, Frame<Tail>) {
         let tail = Frame {
             hlist: self.hlist.tail,
             len: self.len,
@@ -659,8 +659,8 @@ where
     where
         Col: ColId,
         NewCol: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
-        G: Appender<NamedColumn<NewCol>>,
+        H: Selector<Column<Col>, Index>,
+        G: Appender<Column<NewCol>>,
         G::FromRoot: HList,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
@@ -678,7 +678,7 @@ where
                 })
                 .collect()
         };
-        let grouped_frame = self.grouped_frame.add(NamedColumn::with(res)).unwrap();
+        let grouped_frame = self.grouped_frame.add(Column::with(res)).unwrap();
         GroupBy {
             frame: self.frame,
             grouping_index: self.grouping_index,
@@ -696,8 +696,8 @@ where
     where
         Col: ColId,
         NewCol: ColId,
-        H: Selector<NamedColumn<Col>, Index>,
-        G: Appender<NamedColumn<NewCol>>,
+        H: Selector<Column<Col>, Index>,
+        G: Appender<Column<NewCol>>,
         G::FromRoot: HList,
         AccFn: Fn(&[&Col::Output]) -> NewCol::Output,
     {
@@ -954,6 +954,8 @@ pub(crate) mod tests {
         let mut frame: Data3 = Frame::empty();
         frame.insert_row((Some(10), Some(3.23), None));
         frame.insert_row((None, None, Some("test".into())));
+        assert_eq!(frame.get_row(0), Some((Some(&10), Some(&3.23), None)));
+        assert_eq!(frame.get_row(1), Some((None, None, Some(&"test".into()))));
     }
 
     #[test]
@@ -961,7 +963,7 @@ pub(crate) mod tests {
         let _empty: Data3 = frame![];
         let f: Frame3<I64, F64, Str> =
             frame![[NA, 1.0, "test"], [2, NA, "test2"], [3, 3.0, NA]];
-        // assert_eq!(f.get_row[0], 10);
+        assert_eq!(f.get_row(1).unwrap().0, Some(&2));
     }
 
     #[test]
@@ -1007,8 +1009,8 @@ pub(crate) mod tests {
     #[test]
     fn test_replace_row() {
         let mut f = quickframe();
-        // TODO This is very clunky. Making NamedColumns is too confusing and magic
-        let newcol: NamedColumn<F64> = NamedColumn::new(col![5., NA, 3., 2., 0.]);
+        // TODO This is very clunky. Making Column is too confusing and magic
+        let newcol: Column<F64> = Column::new(col![5., NA, 3., 2., 0.]);
         f.swap(newcol.clone());
         assert_eq!(f.get(F64), &newcol);
     }
@@ -1017,7 +1019,7 @@ pub(crate) mod tests {
     #[should_panic]
     fn test_replace_row_wrong_length() {
         let mut f = quickframe();
-        let newcol: NamedColumn<F64> = NamedColumn::new(col![5., NA, 3., 2., 1., 0.]);
+        let newcol: Column<F64> = Column::new(col![5., NA, 3., 2., 1., 0.]);
         f.swap(newcol);
     }
 

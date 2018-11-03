@@ -7,6 +7,10 @@ struct Me {
     age: i32
 }
 
+fn receive(frame: &me::MeFrame) {
+    let namecol = frame.get(me::Name);
+}
+
 fn main() {
 
     // This is how we would *like* things to work
@@ -23,6 +27,12 @@ fn main() {
     // frame.insert(("gnamer", 432));
     frame.insert_row((Some("gnomer"), None));
     println!("{:?}", frame);
+
+    receive(&frame);
+
+    define_col!(Hi, &'static str);
+    let frame = frame.add::<Hi, _>(col![NA, NA, NA, "hi"]).unwrap();
+    let x: i32 = frame.get(me::Age).iter().sum();
 
     // let other: Frame3<i32,
 

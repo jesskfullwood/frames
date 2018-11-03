@@ -27,22 +27,22 @@ pub trait ColId: Copy {
     }
 }
 
-// ### NamedColumn def and impls ###
+// ### Column def and impls ###
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct NamedColumn<T: ColId>(Column<T::Output>);
+pub struct Column<T: ColId>(Array<T::Output>);
 
-impl<T: ColId> NamedColumn<T> {
+impl<T: ColId> Column<T> {
     pub(crate) fn empty() -> Self {
-        NamedColumn(Column::empty())
+        Column(Array::empty())
     }
 
-    pub(crate) fn new(unnamed: Column<T::Output>) -> Self {
-        NamedColumn(unnamed)
+    pub(crate) fn new(unnamed: Array<T::Output>) -> Self {
+        Column(unnamed)
     }
 
-    pub(crate) fn with(from: impl IntoIterator<Item = T::Output>) -> NamedColumn<T> {
-        NamedColumn::new(Column::new(from))
+    pub(crate) fn with(from: impl IntoIterator<Item = T::Output>) -> Column<T> {
+        Column::new(Array::new(from))
     }
 
     /// Get the column name
@@ -51,62 +51,62 @@ impl<T: ColId> NamedColumn<T> {
     }
 
     /// Unwrap the underlying column
-    pub fn into_inner(self) -> Column<T::Output> {
+    pub fn into_inner(self) -> Array<T::Output> {
         self.0
     }
 }
 
-impl<F, Col: ColId> From<F> for NamedColumn<Col>
+impl<F, Col: ColId> From<F> for Column<Col>
 where
-    F: Into<Column<Col::Output>>,
+    F: Into<Array<Col::Output>>,
 {
-    fn from(into_anon: F) -> NamedColumn<Col> {
-        NamedColumn::new(into_anon.into())
+    fn from(into_anon: F) -> Column<Col> {
+        Column::new(into_anon.into())
     }
 }
 
-impl<T: ColId> Deref for NamedColumn<T> {
-    type Target = Column<T::Output>;
+impl<T: ColId> Deref for Column<T> {
+    type Target = Array<T::Output>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T: ColId> DerefMut for NamedColumn<T> {
+impl<T: ColId> DerefMut for Column<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T, O> PartialEq<O> for NamedColumn<T>
+impl<T, O> PartialEq<O> for Column<T>
 where
     T: ColId,
     T::Output: PartialEq,
-    Column<T::Output>: PartialEq<O>,
+    Array<T::Output>: PartialEq<O>,
 {
     fn eq(&self, other: &O) -> bool {
         &self.0 == other
     }
 }
 
-// ### Column def and impls ###
+// ### Array def and impls ###
 
-pub struct Column<T> {
+pub struct Array<T> {
     data: Vec<MaybeUninit<T>>,
     null_count: usize,
     valid_slots: BitVec,
     index: RwLock<Option<IndexMap<T>>>,
 }
 
-impl<T: Clone> Clone for Column<T> {
+impl<T: Clone> Clone for Array<T> {
     // TODO this could be optimized by constructing directly
     // rather than going through an iterator
     fn clone(&self) -> Self {
-        Column::new_null(self.iter_null().map(|maybe_val| maybe_val.cloned()))
+        Array::new_null(self.iter_null().map(|maybe_val| maybe_val.cloned()))
     }
 }
 
-impl<T> Drop for Column<T> {
+impl<T> Drop for Array<T> {
     fn drop(&mut self) {
         self.data
             .iter_mut()
@@ -129,19 +129,19 @@ impl<T> Drop for Column<T> {
 //     fn into_iter(self) -> Self::IntoIter;
 // }
 
-// impl<T, I: IntoIterator<Item = T>> From<I> for Column<T> {
-//     fn from(iter: I) -> Column<T> {
-//         Column::new_notnull(iter)
+// impl<T, I: IntoIterator<Item = T>> From<I> for Array<T> {
+//     fn from(iter: I) -> Array<T> {
+//         Array::new_notnull(iter)
 //     }
 // }
 
-impl<T, I: IntoIterator<Item = Option<T>>> From<I> for Column<T> {
-    fn from(iter: I) -> Column<T> {
-        Column::new_null(iter)
+impl<T, I: IntoIterator<Item = Option<T>>> From<I> for Array<T> {
+    fn from(iter: I) -> Array<T> {
+        Array::new_null(iter)
     }
 }
 
-impl<T: PartialEq> PartialEq for Column<T> {
+impl<T: PartialEq> PartialEq for Array<T> {
     // We don't care whether the index exists so need custom impl
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
@@ -158,7 +158,7 @@ impl<T: PartialEq> PartialEq for Column<T> {
     }
 }
 
-impl<A, T> PartialEq<A> for Column<T>
+impl<A, T> PartialEq<A> for Array<T>
 where
     A: AsRef<[T]>,
     T: PartialEq,
@@ -175,7 +175,7 @@ where
     }
 }
 
-impl<T: Debug> Debug for Column<T> {
+impl<T: Debug> Debug for Array<T> {
     fn fmt(&self, f: &mut Formatter) -> StdResult<(), std::fmt::Error> {
         // This is very inefficient but we don't care because it's only for debugging
         let vals: Vec<String> = self
@@ -188,7 +188,7 @@ impl<T: Debug> Debug for Column<T> {
         let vals = vals.join(", ");
         write!(
             f,
-            "Column {{ indexed: {}, nulls: {}, vals: {} }}",
+            "Array {{ indexed: {}, nulls: {}, vals: {} }}",
             self.index.read().unwrap().is_some(),
             self.null_count,
             vals
@@ -196,9 +196,9 @@ impl<T: Debug> Debug for Column<T> {
     }
 }
 
-impl<T: Sized> Column<T> {
-    pub fn empty() -> Column<T> {
-        Column {
+impl<T: Sized> Array<T> {
+    pub fn empty() -> Array<T> {
+        Array {
             null_count: 0,
             valid_slots: BitVec::new(),
             data: Vec::new(),
@@ -206,7 +206,7 @@ impl<T: Sized> Column<T> {
         }
     }
 
-    pub fn new(data: impl IntoIterator<Item = T>) -> Column<T> {
+    pub fn new(data: impl IntoIterator<Item = T>) -> Array<T> {
         // MaybeUninit is a zero-cost wrapper so cast this should be safe
         let data: Vec<MaybeUninit<T>> = data
             .into_iter()
@@ -216,7 +216,7 @@ impl<T: Sized> Column<T> {
                 uninit
             })
             .collect();
-        Column {
+        Array {
             null_count: 0,
             valid_slots: BitVec::from_elem(data.len(), true),
             data,
@@ -224,8 +224,8 @@ impl<T: Sized> Column<T> {
         }
     }
 
-    pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Column<T> {
-        let mut col = Column::empty();
+    pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Array<T> {
+        let mut col = Array::empty();
         for v in data {
             col.insert(v);
         }
@@ -336,10 +336,10 @@ impl<T: Sized> Column<T> {
             })
     }
 
-    /// Convenience method to construct a new Column from application of `func`
+    /// Convenience method to construct a new Array from application of `func`
     /// - nulls are propagated
-    pub fn map<R>(&self, func: impl Fn(&T) -> R) -> Column<R> {
-        Column::new_null(self.iter_null().map(|v| {
+    pub fn map<R>(&self, func: impl Fn(&T) -> R) -> Array<R> {
+        Array::new_null(self.iter_null().map(|v| {
             match v {
                 Some(v) => Some(func(v)), // v.map(test) doesn't work for some reason
                 None => None,
@@ -347,9 +347,9 @@ impl<T: Sized> Column<T> {
         }))
     }
 
-    /// Convenience method to construct a new Column from application of `func`
-    pub fn map_null<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Column<R> {
-        Column::new_null(self.iter_null().map(|v| func(v)))
+    /// Convenience method to construct a new Array from application of `func`
+    pub fn map_null<R>(&self, func: impl Fn(Option<&T>) -> Option<R>) -> Array<R> {
+        Array::new_null(self.iter_null().map(|v| func(v)))
     }
 
     /// Apply `func` to contents in-place.
@@ -379,11 +379,11 @@ impl<T: Sized> Column<T> {
     }
 }
 
-impl<T: Clone> Column<T> {
-    /// Filter values with supplied function, creating a new Column.
+impl<T: Clone> Array<T> {
+    /// Filter values with supplied function, creating a new Array.
     /// Nulls are left unchanged
     pub fn filter(&self, func: impl Fn(&T) -> bool) -> Self {
-        Column::new_null(self.iter_null().filter_map(|v| match v {
+        Array::new_null(self.iter_null().filter_map(|v| match v {
             Some(v) => {
                 if func(v) {
                     Some(Some(v.clone()))
@@ -395,16 +395,16 @@ impl<T: Clone> Column<T> {
         }))
     }
 
-    /// Create new Column taking values from provided slice of indices
-    pub(crate) fn copy_locs(&self, locs: &[usize]) -> Column<T> {
-        Column::new_null(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
+    /// Create new Array taking values from provided slice of indices
+    pub(crate) fn copy_locs(&self, locs: &[usize]) -> Array<T> {
+        Array::new_null(locs.iter().map(|&ix| self.get(ix).unwrap().cloned()))
     }
 
-    /// Create new NamedColumn taking values from provided slice of indices,
+    /// Create new Array taking values from provided slice of indices,
     /// possibly interjecting nulls
     /// This function is mainly useful for joins
-    pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Column<T> {
-        Column::new_null(locs.iter().map(|&ix| {
+    pub(crate) fn copy_locs_opt(&self, locs: &[Option<usize>]) -> Array<T> {
+        Array::new_null(locs.iter().map(|&ix| {
             if let Some(ix) = ix {
                 self.get(ix).unwrap().cloned()
             } else {
@@ -416,7 +416,7 @@ impl<T: Clone> Column<T> {
     // TODO This basically exists to help with doing group-bys
     // might be a way to do things faster/more cleanly
     // It is guaranteed that each Vec<usize> is nonempty
-    pub(crate) fn copy_first_locs(&self, locs: &[IndexVec]) -> Column<T> {
+    pub(crate) fn copy_first_locs(&self, locs: &[IndexVec]) -> Array<T> {
         let data: Vec<_> = locs
             .iter()
             .map(|inner| {
@@ -425,13 +425,13 @@ impl<T: Clone> Column<T> {
                 self.get(first).unwrap().unwrap().clone()
             })
             .collect();
-        Column::new(data)
+        Array::new(data)
     }
 
     // Filter collection from mask. Nulls are considered equivalent to false
     pub fn filter_mask(&self, mask: &Mask) -> Self {
         assert_eq!(self.len(), mask.len());
-        Column::new_null(self.iter_null().zip(mask.iter()).filter_map(|(v, b)| {
+        Array::new_null(self.iter_null().zip(mask.iter()).filter_map(|(v, b)| {
             if b.unwrap_or(false) {
                 Some(v.cloned())
             } else {
@@ -441,7 +441,7 @@ impl<T: Clone> Column<T> {
     }
 }
 
-impl<T: Ord + Clone + Eq> Column<T> {
+impl<T: Ord + Clone + Eq> Array<T> {
     // TODO this seems to be very slow??
     pub fn build_index(&self) {
         if self.is_indexed() {
@@ -472,7 +472,7 @@ impl<T: Ord + Clone + Eq> Column<T> {
         }
     }
 
-    pub(crate) fn inner_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<usize>) {
+    pub(crate) fn inner_join_locs(&self, other: &Array<T>) -> (Vec<usize>, Vec<usize>) {
         other.build_index();
         let rborrow = other.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
@@ -494,7 +494,7 @@ impl<T: Ord + Clone + Eq> Column<T> {
         (leftout, rightout)
     }
 
-    pub(crate) fn left_join_locs(&self, other: &Column<T>) -> (Vec<usize>, Vec<Option<usize>>) {
+    pub(crate) fn left_join_locs(&self, other: &Array<T>) -> (Vec<usize>, Vec<Option<usize>>) {
         other.build_index();
         let rborrow = other.index.read().unwrap();
         let rindex = rborrow.as_ref().unwrap();
@@ -526,7 +526,7 @@ impl<T: Ord + Clone + Eq> Column<T> {
 
     pub(crate) fn outer_join_locs(
         &self,
-        other: &Column<T>,
+        other: &Array<T>,
     ) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
         self.build_index();
         other.build_index();
@@ -605,11 +605,11 @@ impl<T: Ord + Clone + Eq> Column<T> {
 
 macro_rules! impl_primitive_op {
     ($typ:ident, $func:ident) => {
-        impl<T> $typ<T> for Column<T>
+        impl<T> $typ<T> for Array<T>
         where
             T: $typ + Clone,
         {
-            type Output = Column<T::Output>;
+            type Output = Array<T::Output>;
             fn $func(self, rhs: T) -> Self::Output {
                 //TODO map in-place?
                 self.map(|v| T::$func(v.clone(), rhs.clone()))
@@ -620,16 +620,16 @@ macro_rules! impl_primitive_op {
 
 macro_rules! impl_columnwise_op {
     ($typ:ident, $func:ident) => {
-        impl<T> $typ for Column<T>
+        impl<T> $typ for Array<T>
         where
             T: $typ + Clone,
         {
-            type Output = Column<T::Output>;
-            fn $func(self, rhs: Column<T>) -> Self::Output {
+            type Output = Array<T::Output>;
+            fn $func(self, rhs: Array<T>) -> Self::Output {
                 //TODO map in-place?
                 if self.len() != rhs.len() {
                     panic!(
-                        "Column lengths do not match ({} != {})",
+                        "Array lengths do not match ({} != {})",
                         self.len(),
                         rhs.len()
                     )
@@ -641,7 +641,7 @@ macro_rules! impl_columnwise_op {
                             (Some(v1), Some(v2)) => Some(T::$func(v1.clone(), v2.clone())),
                             _ => None,
                         });
-                Column::new_null(iter)
+                Array::new_null(iter)
             }
         }
     };
@@ -659,11 +659,11 @@ impl_columnwise_op!(Mul, mul);
 impl_columnwise_op!(Div, div);
 impl_columnwise_op!(Rem, rem);
 
-impl<T> Neg for Column<T>
+impl<T> Neg for Array<T>
 where
     T: Neg + Clone,
 {
-    type Output = Column<T::Output>;
+    type Output = Array<T::Output>;
     fn neg(self) -> Self::Output {
         self.map(|v| T::neg(v.clone()))
     }
@@ -672,7 +672,7 @@ where
 // ### basic stats impls ###
 
 // TODO use SIMD!
-impl<T: Num + Copy> Column<T> {
+impl<T: Num + Copy> Array<T> {
     // TODO big risk of overflow for ints
     // use some kind of bigint
     pub fn sum(&self) -> T {
@@ -680,7 +680,7 @@ impl<T: Num + Copy> Column<T> {
     }
 }
 
-impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
+impl<T: Num + Copy + AsPrimitive<f64>> Array<T> {
     /// Calculate the mean of the collection. Ignores null values
     pub fn mean(&self) -> f64 {
         let s: f64 = self.sum().as_();
@@ -741,7 +741,7 @@ impl<T: Num + Copy + AsPrimitive<f64>> Column<T> {
 }
 
 pub struct Mask {
-    mask: Column<bool>,
+    mask: Array<bool>,
     true_count: usize,
 }
 
@@ -760,8 +760,8 @@ impl Mask {
     }
 }
 
-impl From<Column<bool>> for Mask {
-    fn from(mask: Column<bool>) -> Self {
+impl From<Array<bool>> for Mask {
+    fn from(mask: Array<bool>) -> Self {
         let true_count = mask
             .iter_null()
             .fold(0, |acc, v| if *v.unwrap_or(&false) { acc + 1 } else { acc });
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn test_build_with_nulls() {
-        let c = Column::from((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
+        let c = Array::from((0..5).map(|v| if v % 2 == 0 { Some(v) } else { None }));
         assert_eq!(c.len(), 5);
         assert_eq!(c.count_nulls(), 2);
         let vals: Vec<Option<u32>> = c.iter_null().map(|v| v.cloned()).collect();
@@ -836,7 +836,7 @@ mod tests {
             None,
             None,
         ];
-        let c = Column::new_null(words.into_iter());
+        let c = Array::new_null(words.into_iter());
         assert_eq!(c.len(), 5);
         assert_eq!(c.count_nulls(), 3);
         assert_eq!(c.count(), 2);
@@ -848,12 +848,12 @@ mod tests {
         use std::rc::Rc;
         use std::sync::Arc;
         // contains no nulls
-        let c1 = Column::new(vec![Arc::new(10), Arc::new(20)]);
+        let c1 = Array::new(vec![Arc::new(10), Arc::new(20)]);
         drop(c1);
         // contains nulls
-        let c2 = Column::from(vec![Some(Rc::new(1)), None]);
+        let c2 = Array::from(vec![Some(Rc::new(1)), None]);
         drop(c2);
-        let c2 = Column::from(vec![Some(()), None]);
+        let c2 = Array::from(vec![Some(()), None]);
         drop(c2);
     }
 
@@ -861,7 +861,7 @@ mod tests {
     fn test_col_macro() {
         let c = col![1, 2, 3, NA, 4];
         assert_eq!(
-            Column::from(vec![Some(1), Some(2), Some(3), None, Some(4)]),
+            Array::from(vec![Some(1), Some(2), Some(3), None, Some(4)]),
             c,
         );
     }
@@ -877,7 +877,7 @@ mod tests {
     #[test]
     fn test_namedcol_name() {
         define_col!(Me, i64, mine);
-        let c: NamedColumn<Me> = col![].into();
+        let c: Column<Me> = col![].into();
         assert_eq!(Me::name(), "mine");
         assert_eq!(c.name(), "mine");
     }
