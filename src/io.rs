@@ -208,7 +208,7 @@ mod tests {
         let mut w: Vec<u8> = Vec::new();
         let f = quickframe();
         let _ = f.write_writer(&mut w)?;
-        let expect = r#"int_col,float_col,string_col
+        let expect = r#"I64,F64,StrBuf
 1,5,"this,'"""
 2,,is
 ,3,the

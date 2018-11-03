@@ -1,4 +1,4 @@
-use column::{ColId, Mask, Column};
+use column::{ColId, Column, Mask};
 
 use std::fmt::{Debug, Display};
 

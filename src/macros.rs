@@ -1,9 +1,10 @@
-
 // TODO this only works for single idents, ie "my string column" is not allowed
 #[macro_export]
 macro_rules! define_col {
-    ($tyname:ident, $typ:ty) => {
-        define_col!($tyname, $typ, $tyname);
+    ($($tyname:ident: $typ:ty),*) => {
+        $(
+            define_col!($tyname, $typ, $tyname);
+        )*
     };
     ($tyname:ident, $typ:ty, $name:ident) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

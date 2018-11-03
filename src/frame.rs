@@ -1,6 +1,6 @@
 pub use frunk::hlist::{HList, HNil, Plucker, Selector};
 
-use column::{ColId, Array, IndexVec, Mask, Column};
+use column::{Array, ColId, Column, IndexVec, Mask};
 pub use frame_typedef::*;
 use hlist::{
     Appender, ColCons, Concat, HListClonable, HListExt, Insertable, Mapper, Replacer, RowHList,
@@ -338,10 +338,7 @@ where
         rcol: RCol,
     ) -> Frame<<<Oth as Plucker<Column<RCol>, RIx>>::Remainder as Concat<H>>::Combined>
     where
-        Oth: HList
-            + Selector<Column<RCol>, RIx>
-            + Plucker<Column<RCol>, RIx>
-            + HListClonable,
+        Oth: HList + Selector<Column<RCol>, RIx> + Plucker<Column<RCol>, RIx> + HListClonable,
         <Oth as Plucker<Column<RCol>, RIx>>::Remainder: Concat<H> + HList,
         LCol: ColId,
         LCol::Output: Eq + Clone + Ord,
@@ -731,11 +728,13 @@ where
 pub(crate) mod test_fixtures {
     use super::*;
 
-    define_col!(I64, i64, int_col);
-    define_col!(F64, f64, float_col);
-    define_col!(Bool, bool);
-    define_col!(StrBuf, String, string_col);
-    define_col!(Str, &'static str);
+    define_col!(
+        I64: i64,
+        F64: f64,
+        Bool: bool,
+        StrBuf: String,
+        Str: &'static str
+    );
 
     pub(crate) type Data3 = Frame3<I64, F64, StrBuf>;
 
@@ -789,7 +788,7 @@ pub(crate) mod tests {
             .add(col![10i64])?
             .add(col![1.23f64])?
             .add(vec![Some(String::from("Hello"))])?;
-        define_col!(Added, i64);
+        define_col!(Added: i64);
         let f = f.add::<Added, _>(col![123])?;
         let v = f.get(Added);
         assert_eq!(v, &[123]);
@@ -849,8 +848,7 @@ pub(crate) mod tests {
         let f: Frame3<I64, F64, Bool> = Frame::with(col![1, 3, 2, 3, 4, 2])
             .add(col![1., 2., 1., 1., 1., 1.])?
             .add(col![true, false, true, false, true, false])?;
-        define_col!(FloatSum, f64);
-        define_col!(TrueCt, u32);
+        define_col!(FloatSum: f64, TrueCt: u32);
         let g = f
             .groupby(I64)
             .acc(F64, FloatSum, |slice| slice.iter().map(|v| *v).sum())
@@ -961,8 +959,7 @@ pub(crate) mod tests {
     #[test]
     fn test_frame_macro() {
         let _empty: Data3 = frame![];
-        let f: Frame3<I64, F64, Str> =
-            frame![[NA, 1.0, "test"], [2, NA, "test2"], [3, 3.0, NA]];
+        let f: Frame3<I64, F64, Str> = frame![[NA, 1.0, "test"], [2, NA, "test2"], [3, 3.0, NA]];
         assert_eq!(f.get_row(1).unwrap().0, Some(&2));
     }
 
@@ -995,8 +992,8 @@ pub(crate) mod tests {
                 head: Some(&1),
                 tail: frunk::HCons {
                     head: Some(&2.),
-                    tail: frunk::HNil
-                }
+                    tail: frunk::HNil,
+                },
             };
             assert_eq!(row, expect);
         }

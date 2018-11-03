@@ -4,7 +4,7 @@ extern crate frames;
 #[derive(Frame)]
 struct Me {
     name: &'static str,
-    age: i32
+    age: i32,
 }
 
 fn receive(frame: &me::MeFrame) {
@@ -12,16 +12,11 @@ fn receive(frame: &me::MeFrame) {
 }
 
 fn main() {
-
     // This is how we would *like* things to work
 
     // define_frame!(MyFrame, name: &'static str, age: i32);
 
-    let mut frame: me::MeFrame = frame![
-        ["alex", 32],
-        ["bob",  42],
-        [NA,    123]
-    ];
+    let mut frame: me::MeFrame = frame![["alex", 32], ["bob", 42], [NA, 123]];
 
     // frame.insert(Me { name: "more", age: 84 });
     // frame.insert(("gnamer", 432));
@@ -30,7 +25,7 @@ fn main() {
 
     receive(&frame);
 
-    define_col!(Hi, &'static str);
+    define_col!(Hi: &'static str);
     let frame = frame.add::<Hi, _>(col![NA, NA, NA, "hi"]).unwrap();
     let x: i32 = frame.get(me::Age).iter().sum();
 

@@ -41,7 +41,7 @@ extern crate frames_derive;
 pub use frames_derive::*;
 
 #[doc(inline)]
-pub use column::{ColId, Array, Column};
+pub use column::{Array, ColId, Column};
 #[doc(inline)]
 pub use frame::Frame;
 #[doc(inline)]
