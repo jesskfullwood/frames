@@ -227,7 +227,7 @@ impl<T: Sized> Array<T> {
     pub fn new_null(data: impl IntoIterator<Item = Option<T>>) -> Array<T> {
         let mut col = Array::empty();
         for v in data {
-            col.insert(v);
+            col.push(v);
         }
         col
     }
@@ -264,7 +264,7 @@ impl<T: Sized> Array<T> {
         }
     }
 
-    pub fn insert(&mut self, val_opt: Option<T>) {
+    pub fn push(&mut self, val_opt: Option<T>) {
         match val_opt {
             Some(v) => {
                 self.valid_slots.push(true);

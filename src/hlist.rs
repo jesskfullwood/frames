@@ -9,7 +9,7 @@ pub use frunk::indices::{Here, There};
 // This module defines traits and methods on top of the `frunk` HList. For a good intro to HLists, see
 // https://beachape.com/blog/2017/03/12/gentle-intro-to-type-level-recursion-in-Rust-from-zero-to-frunk-hlist-sculpting/
 
-pub type ColCons<C, Tail> = HCons<Column<C>, Tail>;
+pub type ColCons<Head, Tail> = HCons<Column<Head>, Tail>;
 
 // ### HListExt ###
 
@@ -311,7 +311,7 @@ pub trait Transformer {
 pub trait Insertable {
     type ProductOpt;
     fn empty() -> Self;
-    fn insert(&mut self, product_opt: Self::ProductOpt);
+    fn push(&mut self, product_opt: Self::ProductOpt);
 }
 
 impl<Col, Tail> Insertable for ColCons<Col, Tail>
@@ -323,13 +323,13 @@ where
     fn empty() -> Self {
         <Tail as Insertable>::empty().prepend(Column::empty())
     }
-    fn insert(&mut self, product: Self::ProductOpt) {
+    fn push(&mut self, product: Self::ProductOpt) {
         let HCons {
             head: optval,
             tail: rest,
         } = product;
-        self.head.insert(optval);
-        self.tail.insert(rest);
+        self.head.push(optval);
+        self.tail.push(rest);
     }
 }
 
@@ -338,7 +338,7 @@ impl Insertable for HNil {
     fn empty() -> Self {
         HNil
     }
-    fn insert(&mut self, _product: Self::ProductOpt) {}
+    fn push(&mut self, _product: Self::ProductOpt) {}
 }
 
 #[cfg(test)]

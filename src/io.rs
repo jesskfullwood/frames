@@ -48,7 +48,7 @@ where
     for row in reader.deserialize() {
         let row: <H::ProductOpt as Transformer>::Flattened = row?;
         let row = <H::ProductOpt as Transformer>::nest(row);
-        frame.insert_row(row);
+        frame.push_row(row);
     }
     Ok(frame)
 }
@@ -67,7 +67,7 @@ where
     for row in reader.deserialize() {
         let elem: T = row?;
         let row: H::ProductOpt = into_generic(elem);
-        frame.insert_row(row);
+        frame.push_row(row);
     }
     Ok(frame)
 }

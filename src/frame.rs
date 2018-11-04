@@ -18,7 +18,7 @@ use Result;
 
 // ### Frame ###
 
-/// A strongly-typed data structure containing [Column](struct.Column.html)
+/// A strongly-typed data structure containing [Columns](struct.Column.html)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame<H: HList> {
     pub(crate) hlist: H,
@@ -718,8 +718,8 @@ where
     }
 
     #[inline]
-    pub fn insert_row(&mut self, product: impl Into<H::ProductOpt>) {
-        self.hlist.insert(product.into());
+    pub fn push_row(&mut self, product: impl Into<H::ProductOpt>) {
+        self.hlist.push(product.into());
         self.len += 1;
     }
 }
@@ -775,7 +775,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_double_insert() -> Result<()> {
+    fn test_double_push() -> Result<()> {
         let f: Frame2<I64, I64> = Frame::with(col![10]).add(col![101])?;
         let (v, _) = f.extract::<I64, There<Here>>(I64);
         assert_eq!(v, &[101]);
@@ -948,10 +948,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_insert_rows() {
+    fn test_push_rows() {
         let mut frame: Data3 = Frame::empty();
-        frame.insert_row((Some(10), Some(3.23), None));
-        frame.insert_row((None, None, Some("test".into())));
+        frame.push_row((Some(10), Some(3.23), None));
+        frame.push_row((None, None, Some("test".into())));
         assert_eq!(frame.get_row(0), Some((Some(&10), Some(&3.23), None)));
         assert_eq!(frame.get_row(1), Some((None, None, Some(&"test".into()))));
     }

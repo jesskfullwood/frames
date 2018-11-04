@@ -36,7 +36,7 @@ macro_rules! frame {
             let mut f = $crate::Frame::empty();
             $(
                 let row = ($(frame!(wrap $x),)*);
-                f.insert_row(row);
+                f.push_row(row);
             )*;
             f
         }
