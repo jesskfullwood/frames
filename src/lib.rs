@@ -57,6 +57,8 @@ mod frame_typedef;
 pub(crate) mod hlist;
 pub mod io;
 
+pub mod frame2;
+
 type StdResult<T, E> = std::result::Result<T, E>;
 pub type Result<T> = StdResult<T, failure::Error>;
 
